@@ -36,7 +36,7 @@ if(WIN32)
     find_program(WINDEPLOYQT windeployqt HINTS "${_qtbin}")
     if(WINDEPLOYQT)
         add_custom_command(TARGET NanoGo POST_BUILD
-            COMMAND "${WINDEPLOYQT}" --no-translations --no-compiler-runtime --networking "$<TARGET_FILE:NanoGo>"
+            COMMAND "${WINDEPLOYQT}" --no-translations --no-compiler-runtime "$<TARGET_FILE:NanoGo>"
             COMMENT "复制 Qt 运行库")
     endif()
 endif()
