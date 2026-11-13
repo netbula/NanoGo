@@ -21,6 +21,8 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QDir>
+#include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTimer>
@@ -37,6 +39,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_engine, &KataGoEngine::stateChanged, this, &MainWindow::onEngineState);
     connect(m_engine, &KataGoEngine::analysisReceived, this, &MainWindow::onAnalysis);
     connect(m_engine, &KataGoEngine::logLine, this, [this](const QString &l) { m_log->appendPlainText(l); });
+    restoreAutosave();
     positionChanged();
     m_engine->start(m_settings);
 
@@ -72,6 +75,7 @@ MainWindow::~MainWindow() { m_engine->stop(); }
 
 void MainWindow::closeEvent(QCloseEvent *e)
 {
+    autosave();
     m_engine->stop();
     e->accept();
 }
@@ -437,6 +441,7 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
 
 void MainWindow::positionChanged()
 {
+    autosave();
     m_comment->blockSignals(true);
     m_comment->setPlainText(m_tree.current()->comment);
     m_comment->blockSignals(false);
@@ -613,4 +618,42 @@ void MainWindow::onModelList(const QList<NetworkInfo> &list)
     }
     statusBar()->showMessage(QStringLiteral("开始下载新模型 %1（%2 MB）…").arg(best.name, sizeMb), 5000);
     m_updater->download(best);
+}
+
+// 自动保存：每走一步都把整盘棋、当前位置和人机对弈状态写到 data 目录，下次打开自动恢复
+void MainWindow::autosave()
+{
+    const QString dir = AppSettings::dataDir();
+    QFile f(QDir(dir).filePath("autosave.sgf"));
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(Sgf::save(m_tree).toUtf8());
+    QStringList path;
+    for (GameNode *n : m_tree.pathToCurrent())
+        if (n->parent) path << QString::number(n->parent->children.indexOf(n));
+    QSettings st(QDir(dir).filePath("autosave.ini"), QSettings::IniFormat);
+    st.setValue("path", path.join(','));
+    st.setValue("aiColor", int(m_aiColor));
+    st.setValue("aiVisits", m_aiVisits);
+    st.setValue("sgfPath", m_sgfPath);
+}
+
+void MainWindow::restoreAutosave()
+{
+    const QString dir = AppSettings::dataDir();
+    QFile f(QDir(dir).filePath("autosave.sgf"));
+    if (!f.open(QIODevice::ReadOnly)) return;
+    QString err;
+    if (!Sgf::load(Sgf::decode(f.readAll()), m_tree, &err)) return;
+    QSettings st(QDir(dir).filePath("autosave.ini"), QSettings::IniFormat);
+    GameNode *n = m_tree.root();
+    for (const QString &i : st.value("path").toString().split(',', Qt::SkipEmptyParts)) {
+        const int idx = i.toInt();
+        if (idx < 0 || idx >= n->children.size()) break;
+        n = n->children[idx];
+    }
+    m_tree.setCurrent(n);
+    m_aiColor = Stone(st.value("aiColor", 0).toInt());
+    m_aiVisits = st.value("aiVisits", m_aiVisits).toInt();
+    m_sgfPath = st.value("sgfPath").toString();
+    if (m_aiColor != Stone::Empty) setWindowTitle(QStringLiteral("NanoGo 围棋 - 人机对弈"));
+    else if (!m_sgfPath.isEmpty()) setWindowTitle(QStringLiteral("NanoGo 围棋 - %1").arg(QFileInfo(m_sgfPath).fileName()));
 }

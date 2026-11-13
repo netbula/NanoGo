@@ -25,6 +25,8 @@ private:
     void newAiGame();
     void maybeAiMove();
     void checkModel(bool manual);
+    void autosave();
+    void restoreAutosave();
     void onModelList(const QList<NetworkInfo> &list);
     void openSgf();
     void saveSgf();
