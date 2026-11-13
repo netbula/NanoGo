@@ -177,17 +177,16 @@ void MainWindow::buildUi()
         positionChanged();
     });
     QAction *aiGoA = nav->addAction(QStringLiteral("让 AI 走这一步"), QKeySequence(Qt::CTRL | Qt::Key_Return), this, [this] {
-        if (m_aiColor == Stone::Empty) {
-            statusBar()->showMessage(QStringLiteral("现在不是人机对弈，按 Ctrl+G 开始"), 3000);
+        if (m_engine->state() != KataGoEngine::State::Ready) {
+            statusBar()->showMessage(QStringLiteral("引擎还没就绪，请稍候"), 3000);
             return;
         }
-        if (m_tree.toPlay() != m_aiColor) {
-            statusBar()->showMessage(QStringLiteral("现在轮到你走"), 3000);
-            return;
-        }
+        // 不管轮到谁，都让 AI 替当前一方走一步
         m_aiPaused = false;
-        maybeAiMove();
+        m_aiOneShot = true;
+        sendAiQuery();
     });
+    aiGoA->setShortcuts({QKeySequence(Qt::CTRL | Qt::Key_Return), QKeySequence(Qt::CTRL | Qt::Key_Enter)});
 
     QMenu *ana = menuBar()->addMenu(QStringLiteral("分析(&A)"));
     m_analyzeAct = ana->addAction(QStringLiteral("开始/停止分析"));
@@ -321,7 +320,7 @@ void MainWindow::onPointClicked(int x, int y)
                                             : QStringLiteral("AI 正在思考，请稍候…"), 3000);
         return;
     }
-    if (m_tree.play(x, y)) { m_aiPaused = false; positionChanged(); }
+    if (m_tree.play(x, y)) { m_aiPaused = false; m_aiOneShot = false; positionChanged(); }
     else QApplication::beep();
 }
 
@@ -393,7 +392,10 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
     if (!m_aiQueryId.isEmpty() && resp.value("id").toString() == m_aiQueryId) {
         if (resp.value("isDuringSearch").toBool()) return;
         m_aiQueryId.clear();
-        if (m_aiColor == Stone::Empty || m_aiNode != m_tree.current() || m_tree.toPlay() != m_aiColor) return;
+        const bool oneShot = m_aiOneShot;
+        m_aiOneShot = false;
+        if (m_aiNode != m_tree.current()) return;
+        if (!oneShot && (m_aiColor == Stone::Empty || m_tree.toPlay() != m_aiColor)) return;
         const QJsonArray infos = resp.value("moveInfos").toArray();
         QString best;
         if (!infos.isEmpty()) {
@@ -413,7 +415,7 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
         // AI 胜率极低时认输（低于 3% 且已过 100 手）
         const double wrBlack = resp.value("rootInfo").toObject().value("winrate").toDouble();
         const double aiWr = m_aiColor == Stone::Black ? wrBlack : 1 - wrBlack;
-        if (aiWr < 0.03 && m_tree.current()->depth() > 100) {
+        if (!oneShot && aiWr < 0.03 && m_tree.current()->depth() > 100) {
             m_tree.result = m_aiColor == Stone::Black ? QStringLiteral("W+R") : QStringLiteral("B+R");
             m_aiColor = Stone::Empty;
             refreshInfo();
@@ -475,6 +477,11 @@ void MainWindow::maybeAiMove()
         return;
     }
     if (!m_aiQueryId.isEmpty() && m_aiNode == m_tree.current()) return; // 已经在算了
+    sendAiQuery();
+}
+
+void MainWindow::sendAiQuery()
+{
     if (!m_aiQueryId.isEmpty()) m_engine->terminate(m_aiQueryId);
     QJsonObject q = buildQuery();
     q["maxVisits"] = m_aiVisits;
@@ -561,14 +568,21 @@ void MainWindow::refreshInfo()
                             .arg(m_tree.board().capturesBlack()).arg(m_tree.board().capturesWhite())
                             .arg(m_tree.result.isEmpty() ? QString() : QStringLiteral("<br>结果：%1").arg(m_tree.result.toHtmlEscaped())));
 
+    QString turn;
+    if (m_aiColor != Stone::Empty) {
+        if (m_tree.toPlay() != m_aiColor) turn = QStringLiteral("<b style='color:#2a7'>轮到你走</b>");
+        else if (m_aiPaused) turn = QStringLiteral("<b style='color:#b70'>AI 已暂停</b>：落子或按 Ctrl+Enter 继续");
+        else turn = QStringLiteral("<b style='color:#27a'>AI 思考中…</b>");
+        turn += "<br>";
+    }
     const Analysis &a = cur->analysis;
     if (!a.valid) {
-        m_analysisInfo->setText(m_analyzeAct->isChecked() ? QStringLiteral("计算中…") : QStringLiteral("按空格键开始分析"));
+        m_analysisInfo->setText(turn + (m_analyzeAct->isChecked() ? QStringLiteral("计算中…") : QStringLiteral("按空格键开始分析")));
         return;
     }
     const double lead = a.scoreLeadBlack;
     const QString leader = lead >= 0 ? QStringLiteral("黑") : QStringLiteral("白");
-    m_analysisInfo->setText(QStringLiteral("黑胜率 <b>%1%</b><br>%2 领先 <b>%3</b> 目<br><span style='color:gray'>计算量 %4</span>")
+    m_analysisInfo->setText(turn + QStringLiteral("黑胜率 <b>%1%</b><br>%2 领先 <b>%3</b> 目<br><span style='color:gray'>计算量 %4</span>")
                                 .arg(a.winrateBlack * 100, 0, 'f', 1).arg(leader).arg(qAbs(lead), 0, 'f', 1).arg(a.visits));
 }
 

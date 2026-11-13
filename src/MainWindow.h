@@ -24,6 +24,7 @@ private:
     void newGame();
     void newAiGame();
     void maybeAiMove();
+    void sendAiQuery();
     void checkModel(bool manual);
     void autosave();
     void restoreAutosave();
@@ -57,5 +58,6 @@ private:
     int m_aiVisits = 400;
     QString m_aiQueryId;
     GameNode *m_aiNode = nullptr;
-    bool m_aiPaused = false;  // 浏览/悔棋后 AI 暂停，等你落子再继续
+    bool m_aiPaused = false;
+    bool m_aiOneShot = false;  // “让 AI 走这一步”：替当前一方走一步  // 浏览/悔棋后 AI 暂停，等你落子再继续
 };
