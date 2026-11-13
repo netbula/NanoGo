@@ -357,7 +357,21 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
         m_aiQueryId.clear();
         if (m_aiColor == Stone::Empty || m_aiNode != m_tree.current() || m_tree.toPlay() != m_aiColor) return;
         const QJsonArray infos = resp.value("moveInfos").toArray();
-        QString best = infos.isEmpty() ? QStringLiteral("pass") : infos.first().toObject().value("move").toString();
+        QString best;
+        if (!infos.isEmpty()) {
+            best = infos.first().toObject().value("move").toString();
+        } else {
+            // 计算量为 1 时 KataGo 不展开候选点，只能用策略网络（直觉）最高的点
+            const QJsonArray policy = resp.value("policy").toArray();
+            const int n = m_tree.boardSize();
+            int bestIdx = -1;
+            double bestP = -1;
+            for (int i = 0; i < policy.size(); ++i) {
+                const double p = policy[i].toDouble();
+                if (p > bestP) { bestP = p; bestIdx = i; }
+            }
+            best = (bestIdx >= 0 && bestIdx < n * n) ? BoardWidget::toGtp(bestIdx % n, bestIdx / n, n) : QStringLiteral("pass");
+        }
         // AI 胜率极低时认输（低于 3% 且已过 100 手）
         const double wrBlack = resp.value("rootInfo").toObject().value("winrate").toDouble();
         const double aiWr = m_aiColor == Stone::Black ? wrBlack : 1 - wrBlack;
@@ -423,6 +437,7 @@ void MainWindow::maybeAiMove()
     q["maxVisits"] = m_aiVisits;
     q.remove("reportDuringSearchEvery");
     q["includeOwnership"] = false;
+    q["includePolicy"] = true;
     m_aiNode = m_tree.current();
     m_aiQueryId = m_engine->analyze(q);
     statusBar()->showMessage(QStringLiteral("AI 思考中…"), 2000);
