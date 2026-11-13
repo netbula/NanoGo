@@ -53,7 +53,8 @@ static QString newestMatch(const QString &dir, const QStringList &patterns, cons
 void AppSettings::autoDetect()
 {
     const QString home = QDir::homePath();
-    const QStringList exeDirs = {QDir(appDir()).filePath("katago"), "C:/dev/NanoGo/katago", home + "/.katrain"};
+    // 只在 NanoGo 自己的文件夹里找 KataGo 引擎，不依赖 KaTrain
+    const QStringList exeDirs = {QDir(appDir()).filePath("katago"), "C:/dev/NanoGo/katago"};
     if (katagoPath.isEmpty()) {
         for (const QString &d : exeDirs) {
             // 优先 OpenCL 版（显卡），不要 +bs50 那种特殊版本
@@ -67,7 +68,7 @@ void AppSettings::autoDetect()
     }
     if (modelPath.isEmpty()) {
         const QStringList modelDirs = {QDir(appDir()).filePath("models"), "C:/dev/NanoGo/models",
-                                       home + "/Downloads", home + "/.katrain"};
+                                       home + "/Downloads"};
         for (const QString &d : modelDirs) {
             QString p = newestMatch(d, {"*.bin.gz"}, "zhizi");
             if (!p.isEmpty() && !QFileInfo(p).fileName().contains("human")) { modelPath = p; break; }

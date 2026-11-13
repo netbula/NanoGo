@@ -6,7 +6,7 @@
 - 19 路棋盘，落子、提子、打劫判断
 - 打开 / 保存 SGF 棋谱（自动识别 UTF-8 和 GBK 编码），支持变化分支
 - 通过 KataGo analysis 协议实时分析：胜率、领先目数、候选点（悬停看变化图）、形势判断
-- 自动寻找 KataGo（优先 OpenCL 版）和模型（优先 zhizi）
+- 自动寻找 `C:\dev\NanoGo\katago` 里的 KataGo 引擎（优先 OpenCL 版）和模型（优先 zhizi），不依赖 KaTrain
 - 引擎出错时给出中文说明，并可直接打开设置
 - 状态栏显示正在使用哪块显卡
 
