@@ -25,7 +25,10 @@ void AppSettings::load()
     maxVisits = s.value("engine/maxVisits", maxVisits).toInt();
     komi = s.value("game/komi", komi).toDouble();
     rules = s.value("game/rules", rules).toString();
-    if (katagoPath.isEmpty() || modelPath.isEmpty()) autoDetect();
+    if (katagoPath.isEmpty() || modelPath.isEmpty()) {
+        autoDetect();
+        save(); // 把自动找到的路径写进 nanogo.ini，方便查看和修改
+    }
 }
 
 void AppSettings::save() const

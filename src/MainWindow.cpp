@@ -6,6 +6,11 @@
 #include <QApplication>
 #include <QPushButton>
 #include <QCloseEvent>
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QSpinBox>
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
@@ -105,7 +110,8 @@ void MainWindow::buildUi()
 
     // 菜单
     QMenu *file = menuBar()->addMenu(QStringLiteral("文件(&F)"));
-    file->addAction(QStringLiteral("新对局"), QKeySequence::New, this, &MainWindow::newGame);
+    file->addAction(QStringLiteral("新对局（摆谱 / 分析）"), QKeySequence::New, this, &MainWindow::newGame);
+    file->addAction(QStringLiteral("人机对弈…"), QKeySequence(Qt::CTRL | Qt::Key_G), this, &MainWindow::newAiGame);
     file->addAction(QStringLiteral("打开棋谱…"), QKeySequence::Open, this, &MainWindow::openSgf);
     file->addAction(QStringLiteral("保存棋谱…"), QKeySequence::Save, this, &MainWindow::saveSgf);
     file->addSeparator();
@@ -149,6 +155,8 @@ void MainWindow::buildUi()
 
     QToolBar *tb = addToolBar(QStringLiteral("工具栏"));
     tb->setMovable(false);
+    tb->addAction(QStringLiteral("人机对弈"), this, &MainWindow::newAiGame);
+    tb->addSeparator();
     tb->addAction(startA);
     tb->addAction(backA);
     tb->addAction(fwdA);
@@ -163,6 +171,9 @@ void MainWindow::buildUi()
 
 void MainWindow::newGame()
 {
+    m_aiColor = Stone::Empty;
+    m_aiQueryId.clear();
+    m_aiNode = nullptr;
     m_engine->terminateAll();
     m_queryId.clear();
     m_queryNode = nullptr;
@@ -184,6 +195,8 @@ void MainWindow::openSgf()
         QMessageBox::warning(this, QStringLiteral("打开失败"), QStringLiteral("无法读取文件：%1").arg(path));
         return;
     }
+    m_aiColor = Stone::Empty;
+    m_aiQueryId.clear();
     m_engine->terminateAll();
     m_queryId.clear();
     m_queryNode = nullptr;
@@ -236,6 +249,10 @@ void MainWindow::restartEngine()
 
 void MainWindow::onPointClicked(int x, int y)
 {
+    if (m_aiColor != Stone::Empty && m_tree.toPlay() == m_aiColor) {
+        statusBar()->showMessage(QStringLiteral("AI 正在思考，请稍候…"), 2000);
+        return;
+    }
     if (m_tree.play(x, y)) positionChanged();
     else QApplication::beep();
 }
@@ -245,6 +262,7 @@ void MainWindow::onEngineState(KataGoEngine::State s, const QString &msg)
     QString color = s == KataGoEngine::State::Ready ? "green" : s == KataGoEngine::State::Failed ? "red" : "#b07000";
     m_engineStatus->setText(QStringLiteral("<span style='color:%1'>●</span> %2").arg(color, msg.section('\n', 0, 0).toHtmlEscaped()));
     if (s == KataGoEngine::State::Ready && m_analyzeAct->isChecked()) requestAnalysis();
+    if (s == KataGoEngine::State::Ready) { m_aiQueryId.clear(); maybeAiMove(); }
     if (s == KataGoEngine::State::Failed) {
         QMessageBox box(QMessageBox::Warning, QStringLiteral("引擎出错"), msg, QMessageBox::Ok, this);
         QPushButton *settingsBtn = box.addButton(QStringLiteral("打开设置"), QMessageBox::ActionRole);
@@ -304,6 +322,27 @@ void MainWindow::requestAnalysis()
 
 void MainWindow::onAnalysis(const QJsonObject &resp)
 {
+    if (!m_aiQueryId.isEmpty() && resp.value("id").toString() == m_aiQueryId) {
+        if (resp.value("isDuringSearch").toBool()) return;
+        m_aiQueryId.clear();
+        if (m_aiColor == Stone::Empty || m_aiNode != m_tree.current() || m_tree.toPlay() != m_aiColor) return;
+        const QJsonArray infos = resp.value("moveInfos").toArray();
+        QString best = infos.isEmpty() ? QStringLiteral("pass") : infos.first().toObject().value("move").toString();
+        // AI 胜率极低时认输（低于 3% 且已过 100 手）
+        const double wrBlack = resp.value("rootInfo").toObject().value("winrate").toDouble();
+        const double aiWr = m_aiColor == Stone::Black ? wrBlack : 1 - wrBlack;
+        if (aiWr < 0.03 && m_tree.current()->depth() > 100) {
+            m_tree.result = m_aiColor == Stone::Black ? QStringLiteral("W+R") : QStringLiteral("B+R");
+            m_aiColor = Stone::Empty;
+            refreshInfo();
+            QMessageBox::information(this, QStringLiteral("对局结束"), QStringLiteral("AI 认输，你赢了！"));
+            return;
+        }
+        int x, y;
+        if (!(BoardWidget::fromGtp(best, m_tree.boardSize(), &x, &y) && m_tree.play(x, y))) m_tree.pass();
+        positionChanged();
+        return;
+    }
     if (resp.value("id").toString() != m_queryId || !m_queryNode) return;
     const QJsonObject root = resp.value("rootInfo").toObject();
     Analysis &a = m_queryNode->analysis;
@@ -326,6 +365,95 @@ void MainWindow::positionChanged()
     m_board->update();
     refreshInfo();
     requestAnalysis();
+
+    if (m_aiColor != Stone::Empty) {
+        const GameNode *cur = m_tree.current();
+        if (cur->move.isPass() && cur->move.isValid() && cur->parent && cur->parent->move.isValid() && cur->parent->move.isPass()) {
+            m_aiColor = Stone::Empty;
+            const Analysis &a = cur->analysis.valid ? cur->analysis : cur->parent->analysis;
+            QString msg = QStringLiteral("双方都停了一手，对局结束。");
+            if (a.valid) msg += QStringLiteral("\nAI 估计：%1 领先 %2 目").arg(a.scoreLeadBlack >= 0 ? "黑" : "白").arg(qAbs(a.scoreLeadBlack), 0, 'f', 1);
+            QMessageBox::information(this, QStringLiteral("对局结束"), msg);
+            return;
+        }
+        maybeAiMove();
+    }
+}
+
+void MainWindow::maybeAiMove()
+{
+    if (m_aiColor == Stone::Empty || m_tree.toPlay() != m_aiColor) return;
+    if (m_engine->state() != KataGoEngine::State::Ready) {
+        statusBar()->showMessage(QStringLiteral("等引擎就绪后 AI 会自动落子"), 3000);
+        return;
+    }
+    if (!m_aiQueryId.isEmpty() && m_aiNode == m_tree.current()) return; // 已经在算了
+    if (!m_aiQueryId.isEmpty()) m_engine->terminate(m_aiQueryId);
+    QJsonObject q = buildQuery();
+    q["maxVisits"] = m_aiVisits;
+    q.remove("reportDuringSearchEvery");
+    q["includeOwnership"] = false;
+    m_aiNode = m_tree.current();
+    m_aiQueryId = m_engine->analyze(q);
+    statusBar()->showMessage(QStringLiteral("AI 思考中…"), 2000);
+}
+
+void MainWindow::newAiGame()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(QStringLiteral("人机对弈"));
+    auto *form = new QFormLayout(&dlg);
+    auto *color = new QComboBox(&dlg);
+    color->addItem(QStringLiteral("我执黑（先走）"), int(Stone::Black));
+    color->addItem(QStringLiteral("我执白"), int(Stone::White));
+    form->addRow(QStringLiteral("我的颜色："), color);
+    auto *handicap = new QSpinBox(&dlg);
+    handicap->setRange(0, 9);
+    handicap->setSuffix(QStringLiteral(" 子"));
+    handicap->setToolTip(QStringLiteral("让子时黑方先摆子，白方先走，贴目自动改为 0.5"));
+    form->addRow(QStringLiteral("让子（黑方摆子）："), handicap);
+    auto *strength = new QComboBox(&dlg);
+    strength->addItem(QStringLiteral("很快（每步 1 次计算，只凭直觉）"), 1);
+    strength->addItem(QStringLiteral("快（每步 20 次）"), 20);
+    strength->addItem(QStringLiteral("中（每步 100 次）"), 100);
+    strength->addItem(QStringLiteral("强（每步 400 次，约 2 秒）"), 400);
+    strength->addItem(QStringLiteral("最强（每步 1600 次，约 8 秒）"), 1600);
+    strength->setCurrentIndex(qMax(0, strength->findData(m_aiVisits)));
+    form->addRow(QStringLiteral("AI 计算量："), strength);
+    auto *note = new QLabel(QStringLiteral("提示：zhizi 模型即使只算 1 次也是职业以上水平。\n按人类段位调整强度会在后续版本加入。"), &dlg);
+    note->setStyleSheet("color: gray;");
+    form->addRow(note);
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    bb->button(QDialogButtonBox::Ok)->setText(QStringLiteral("开始"));
+    bb->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(bb);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    newGame();
+    const Stone me = Stone(color->currentData().toInt());
+    m_aiVisits = strength->currentData().toInt();
+    const int h = handicap->value();
+    if (h >= 2) {
+        // 19 路标准让子位置
+        const QList<QPoint> pts2 = {{15, 3}, {3, 15}};
+        QList<QPoint> pts = pts2;
+        if (h >= 3) pts.append({15, 15});
+        if (h >= 4) pts.append({3, 3});
+        if (h == 5 || h == 7 || h == 9) pts.append({9, 9});
+        if (h >= 6) { pts.append({3, 9}); pts.append({15, 9}); }
+        if (h >= 8) { pts.append({9, 3}); pts.append({9, 15}); }
+        m_tree.root()->addBlack = pts;
+        m_tree.setKomi(0.5);
+        m_tree.root()->extraProps["HA"] = {QString::number(h)};
+    }
+    m_tree.playerBlack = me == Stone::Black ? QStringLiteral("我") : QStringLiteral("NanoGo AI");
+    m_tree.playerWhite = me == Stone::White ? QStringLiteral("我") : QStringLiteral("NanoGo AI");
+    m_tree.setCurrent(m_tree.root());
+    m_aiColor = opponent(me);
+    setWindowTitle(QStringLiteral("NanoGo 围棋 - 人机对弈"));
+    positionChanged();
 }
 
 void MainWindow::refreshInfo()

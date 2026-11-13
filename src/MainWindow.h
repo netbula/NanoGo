@@ -21,6 +21,8 @@ protected:
 private:
     void buildUi();
     void newGame();
+    void newAiGame();
+    void maybeAiMove();
     void openSgf();
     void saveSgf();
     void openSettings();
@@ -43,4 +45,9 @@ private:
     QString m_queryId;
     GameNode *m_queryNode = nullptr;
     QString m_sgfPath;
+    // 人机对弈
+    Stone m_aiColor = Stone::Empty;
+    int m_aiVisits = 400;
+    QString m_aiQueryId;
+    GameNode *m_aiNode = nullptr;
 };

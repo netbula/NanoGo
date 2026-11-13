@@ -5,3 +5,5 @@ CMakeUserPresets.json
 *.user
 data/
 diag/
+katago/
+models/
