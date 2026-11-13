@@ -55,4 +55,5 @@ private:
     int m_aiVisits = 400;
     QString m_aiQueryId;
     GameNode *m_aiNode = nullptr;
+    bool m_aiPaused = false;  // 浏览/悔棋后 AI 暂停，等你落子再继续
 };

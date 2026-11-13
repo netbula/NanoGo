@@ -142,16 +142,48 @@ void MainWindow::buildUi()
     file->addAction(QStringLiteral("退出"), QKeySequence::Quit, this, &QWidget::close);
 
     QMenu *nav = menuBar()->addMenu(QStringLiteral("棋局(&G)"));
-    auto addNav = [&](const QString &t, QKeySequence k, auto fn) {
-        QAction *a = nav->addAction(t, k, this, [this, fn] { if ((m_tree.*fn)()) positionChanged(); });
-        return a;
+    // 浏览棋局时 AI 暂停，免得一退回去 AI 又马上把棋下回来
+    auto navigate = [this](auto step) {
+        m_aiPaused = true;
+        if (!m_aiQueryId.isEmpty()) { m_engine->terminate(m_aiQueryId); m_aiQueryId.clear(); }
+        if (step()) positionChanged();
     };
-    QAction *backA = addNav(QStringLiteral("后退一步"), QKeySequence(Qt::Key_Left), &GameTree::back);
-    QAction *fwdA = addNav(QStringLiteral("前进一步"), QKeySequence(Qt::Key_Right), &GameTree::forward);
-    QAction *startA = nav->addAction(QStringLiteral("回到开头"), QKeySequence(Qt::Key_Home), this, [this] { m_tree.toStart(); positionChanged(); });
-    QAction *endA = nav->addAction(QStringLiteral("走到最后"), QKeySequence(Qt::Key_End), this, [this] { m_tree.toEnd(); positionChanged(); });
+    QAction *backA = nav->addAction(QStringLiteral("后退一步（悔棋）"), QKeySequence(Qt::Key_Left), this, [this, navigate] {
+        navigate([this] {
+            if (!m_tree.back()) return false;
+            // 人机对弈：退到轮你走为止（一次退两步）
+            if (m_aiColor != Stone::Empty && m_tree.toPlay() == m_aiColor) m_tree.back();
+            return true;
+        });
+    });
+    QAction *fwdA = nav->addAction(QStringLiteral("前进一步"), QKeySequence(Qt::Key_Right), this, [this, navigate] {
+        navigate([this] { return m_tree.forward(); });
+    });
+    QAction *startA = nav->addAction(QStringLiteral("回到开头"), QKeySequence(Qt::Key_Home), this, [this, navigate] {
+        navigate([this] { m_tree.toStart(); return true; });
+    });
+    QAction *endA = nav->addAction(QStringLiteral("走到最后"), QKeySequence(Qt::Key_End), this, [this, navigate] {
+        navigate([this] { m_tree.toEnd(); return true; });
+    });
     nav->addSeparator();
-    QAction *passA = nav->addAction(QStringLiteral("停一手"), QKeySequence(Qt::CTRL | Qt::Key_P), this, [this] { m_tree.pass(); positionChanged(); });
+    QAction *passA = nav->addAction(QStringLiteral("停一手"), QKeySequence(Qt::CTRL | Qt::Key_P), this, [this] {
+        if (m_aiColor != Stone::Empty && m_tree.toPlay() == m_aiColor) return;
+        m_aiPaused = false;
+        m_tree.pass();
+        positionChanged();
+    });
+    QAction *aiGoA = nav->addAction(QStringLiteral("让 AI 走这一步"), QKeySequence(Qt::CTRL | Qt::Key_Return), this, [this] {
+        if (m_aiColor == Stone::Empty) {
+            statusBar()->showMessage(QStringLiteral("现在不是人机对弈，按 Ctrl+G 开始"), 3000);
+            return;
+        }
+        if (m_tree.toPlay() != m_aiColor) {
+            statusBar()->showMessage(QStringLiteral("现在轮到你走"), 3000);
+            return;
+        }
+        m_aiPaused = false;
+        maybeAiMove();
+    });
 
     QMenu *ana = menuBar()->addMenu(QStringLiteral("分析(&A)"));
     m_analyzeAct = ana->addAction(QStringLiteral("开始/停止分析"));
@@ -193,6 +225,7 @@ void MainWindow::buildUi()
     tb->addAction(endA);
     tb->addSeparator();
     tb->addAction(passA);
+    tb->addAction(aiGoA);
     tb->addSeparator();
     tb->addAction(m_analyzeAct);
     tb->addAction(m_candAct);
@@ -280,10 +313,11 @@ void MainWindow::restartEngine()
 void MainWindow::onPointClicked(int x, int y)
 {
     if (m_aiColor != Stone::Empty && m_tree.toPlay() == m_aiColor) {
-        statusBar()->showMessage(QStringLiteral("AI 正在思考，请稍候…"), 2000);
+        statusBar()->showMessage(m_aiPaused ? QStringLiteral("现在轮到 AI：按 Ctrl+Enter 让 AI 走，或按 → 前进")
+                                            : QStringLiteral("AI 正在思考，请稍候…"), 3000);
         return;
     }
-    if (m_tree.play(x, y)) positionChanged();
+    if (m_tree.play(x, y)) { m_aiPaused = false; positionChanged(); }
     else QApplication::beep();
 }
 
@@ -427,6 +461,10 @@ void MainWindow::positionChanged()
 void MainWindow::maybeAiMove()
 {
     if (m_aiColor == Stone::Empty || m_tree.toPlay() != m_aiColor) return;
+    if (m_aiPaused) {
+        statusBar()->showMessage(QStringLiteral("AI 已暂停：你落子后继续，或按 Ctrl+Enter 让 AI 走这一步"), 5000);
+        return;
+    }
     if (m_engine->state() != KataGoEngine::State::Ready) {
         statusBar()->showMessage(QStringLiteral("等引擎就绪后 AI 会自动落子"), 3000);
         return;
@@ -497,6 +535,7 @@ void MainWindow::newAiGame()
     m_tree.playerWhite = me == Stone::White ? QStringLiteral("我") : QStringLiteral("NanoGo AI");
     m_tree.setCurrent(m_tree.root());
     m_aiColor = opponent(me);
+    m_aiPaused = false;
     setWindowTitle(QStringLiteral("NanoGo 围棋 - 人机对弈"));
     positionChanged();
 }
