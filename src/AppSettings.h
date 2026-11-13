@@ -1,4 +1,5 @@
 #pragma once
+#include <QDateTime>
 #include <QString>
 
 // 程序设置，保存在 exe 同目录的 nanogo.ini
@@ -10,10 +11,13 @@ struct AppSettings {
     int maxVisits = 1000;    // 每个局面的最大计算量
     double komi = 7.5;
     QString rules = QStringLiteral("chinese");
+    bool autoUpdateModel = true;  // 自动跟踪官方最强模型
+    QDateTime lastModelCheck;
 
     static QString appDir();
     static QString dataDir();    // 程序生成的配置、日志、调优文件放这里
     static QString iniPath();
+    static QString modelsDir();  // 自动下载的模型放这里
 
     void load();
     void save() const;

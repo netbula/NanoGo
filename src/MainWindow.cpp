@@ -23,10 +23,12 @@
 #include <QPlainTextEdit>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_engine(new KataGoEngine(this))
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent), m_engine(new KataGoEngine(this)), m_updater(new ModelUpdater(this))
 {
     m_settings.load();
     m_tree.setKomi(m_settings.komi);
@@ -37,6 +39,28 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_engine(new Kata
     connect(m_engine, &KataGoEngine::logLine, this, [this](const QString &l) { m_log->appendPlainText(l); });
     positionChanged();
     m_engine->start(m_settings);
+
+    // 模型自动更新
+    connect(m_updater, &ModelUpdater::listReady, this, &MainWindow::onModelList);
+    connect(m_updater, &ModelUpdater::failed, this, [this](const QString &msg) {
+        m_log->appendPlainText(msg);
+        if (m_manualCheck) QMessageBox::warning(this, QStringLiteral("模型更新"), msg);
+        else statusBar()->showMessage(msg, 8000);
+    });
+    connect(m_updater, &ModelUpdater::downloadProgress, this, [this](qint64 d, qint64 t) {
+        if (t > 0) statusBar()->showMessage(QStringLiteral("正在下载新模型… %1%（%2 / %3 MB）")
+                                                .arg(d * 100 / t).arg(d >> 20).arg(t >> 20));
+    });
+    connect(m_updater, &ModelUpdater::downloadFinished, this, [this](const QString &path) {
+        m_settings.modelPath = path;
+        m_settings.save();
+        statusBar()->showMessage(QStringLiteral("已切换到新模型 %1（第一次使用需要几分钟显卡调优）").arg(QFileInfo(path).fileName()), 15000);
+        m_log->appendPlainText(QStringLiteral("—— 切换模型：%1 ——").arg(path));
+        restartEngine();
+    });
+    if (m_settings.autoUpdateModel
+        && (!m_settings.lastModelCheck.isValid() || m_settings.lastModelCheck.secsTo(QDateTime::currentDateTime()) > 24 * 3600))
+        QTimer::singleShot(3000, this, [this] { checkModel(false); });
     if (qEnvironmentVariableIsSet("NANOGO_SCREENSHOT")) {
         for (QPoint p : {QPoint(15, 3), QPoint(3, 15), QPoint(16, 15), QPoint(2, 3)}) m_tree.play(p.x(), p.y());
         positionChanged();
@@ -152,6 +176,12 @@ void MainWindow::buildUi()
 
     QMenu *set = menuBar()->addMenu(QStringLiteral("设置(&S)"));
     set->addAction(QStringLiteral("引擎与对局设置…"), this, &MainWindow::openSettings);
+    set->addSeparator();
+    set->addAction(QStringLiteral("检查模型更新…"), this, [this] { checkModel(true); });
+    QAction *autoUpd = set->addAction(QStringLiteral("自动切换到官方最强模型（每天检查一次）"));
+    autoUpd->setCheckable(true);
+    autoUpd->setChecked(m_settings.autoUpdateModel);
+    connect(autoUpd, &QAction::toggled, this, [this](bool on) { m_settings.autoUpdateModel = on; m_settings.save(); });
 
     QToolBar *tb = addToolBar(QStringLiteral("工具栏"));
     tb->setMovable(false);
@@ -481,4 +511,52 @@ void MainWindow::refreshInfo()
     const QString leader = lead >= 0 ? QStringLiteral("黑") : QStringLiteral("白");
     m_analysisInfo->setText(QStringLiteral("黑胜率 <b>%1%</b><br>%2 领先 <b>%3</b> 目<br><span style='color:gray'>计算量 %4</span>")
                                 .arg(a.winrateBlack * 100, 0, 'f', 1).arg(leader).arg(qAbs(lead), 0, 'f', 1).arg(a.visits));
+}
+
+void MainWindow::checkModel(bool manual)
+{
+    if (m_updater->busy()) {
+        if (manual) QMessageBox::information(this, QStringLiteral("模型更新"), QStringLiteral("正在检查或下载中，请稍候。"));
+        return;
+    }
+    m_manualCheck = manual;
+    statusBar()->showMessage(QStringLiteral("正在从 katagotraining.org 检查最新模型…"), 5000);
+    m_updater->checkForUpdates();
+}
+
+void MainWindow::onModelList(const QList<NetworkInfo> &list)
+{
+    m_settings.lastModelCheck = QDateTime::currentDateTime();
+    m_settings.save();
+    const NetworkInfo best = ModelUpdater::strongest(list);
+    if (best.name.isEmpty()) {
+        if (m_manualCheck) QMessageBox::warning(this, QStringLiteral("模型更新"), QStringLiteral("没有从官方列表里找到可用的模型。"));
+        return;
+    }
+    const NetworkInfo *cur = ModelUpdater::find(list, m_settings.modelPath);
+    auto desc = [](const NetworkInfo &n) {
+        return QStringLiteral("%1\n等级分 %2 ± %3（%4 局评测）").arg(n.name).arg(n.elo, 0, 'f', 0).arg(n.eloUncertainty, 0, 'f', 0).arg(n.games);
+    };
+    m_log->appendPlainText(QStringLiteral("官方最强模型：") + desc(best).replace('\n', ' '));
+
+    if (cur && (cur->name == best.name || cur->eloLower >= best.eloLower)) {
+        if (m_manualCheck)
+            QMessageBox::information(this, QStringLiteral("模型更新"), QStringLiteral("当前用的已经是最强模型：\n%1").arg(desc(*cur)));
+        else statusBar()->showMessage(QStringLiteral("当前模型已是官方最强"), 5000);
+        return;
+    }
+
+    const QString sizeMb = QString::number(best.bytes >> 20);
+    // 当前模型在官方列表里且开了自动更新：直接下载切换；否则先问
+    if (!(cur && m_settings.autoUpdateModel)) {
+        const QString curText = cur ? desc(*cur) : QStringLiteral("%1（不在官方列表里，无法比较）").arg(QFileInfo(m_settings.modelPath).fileName());
+        auto ans = QMessageBox::question(this, QStringLiteral("发现更强的模型"),
+            QStringLiteral("官方最强模型：\n%1\n\n当前模型：\n%2\n\n要下载（约 %3 MB）并切换吗？旧模型会保留。")
+                .arg(desc(best), curText, sizeMb));
+        if (ans != QMessageBox::Yes) return;
+    } else {
+        m_log->appendPlainText(QStringLiteral("自动更新：%1 → %2（高 %3 分）").arg(cur->name, best.name).arg(best.elo - cur->elo, 0, 'f', 0));
+    }
+    statusBar()->showMessage(QStringLiteral("开始下载新模型 %1（%2 MB）…").arg(best.name, sizeMb), 5000);
+    m_updater->download(best);
 }

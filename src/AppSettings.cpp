@@ -13,6 +13,15 @@ QString AppSettings::dataDir()
     return d.filePath("data");
 }
 
+QString AppSettings::modelsDir()
+{
+    // 优先放在 C:\dev\NanoGo\models，换了位置就放在 exe 旁边
+    QDir root("C:/dev/NanoGo");
+    QDir d = root.exists() ? root : QDir(appDir());
+    d.mkpath("models");
+    return d.filePath("models");
+}
+
 QString AppSettings::iniPath() { return QDir(appDir()).filePath("nanogo.ini"); }
 
 void AppSettings::load()
@@ -25,6 +34,8 @@ void AppSettings::load()
     maxVisits = s.value("engine/maxVisits", maxVisits).toInt();
     komi = s.value("game/komi", komi).toDouble();
     rules = s.value("game/rules", rules).toString();
+    autoUpdateModel = s.value("model/autoUpdate", autoUpdateModel).toBool();
+    lastModelCheck = s.value("model/lastCheck").toDateTime();
     if (katagoPath.isEmpty() || modelPath.isEmpty()) {
         autoDetect();
         save(); // 把自动找到的路径写进 nanogo.ini，方便查看和修改
@@ -41,6 +52,8 @@ void AppSettings::save() const
     s.setValue("engine/maxVisits", maxVisits);
     s.setValue("game/komi", komi);
     s.setValue("game/rules", rules);
+    s.setValue("model/autoUpdate", autoUpdateModel);
+    s.setValue("model/lastCheck", lastModelCheck);
 }
 
 static QString newestMatch(const QString &dir, const QStringList &patterns, const QString &prefer = {})

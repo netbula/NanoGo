@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Network)
 
 if(MSVC)
     # 源码里有中文字符串，必须按 UTF-8 编译
@@ -22,10 +22,11 @@ set(SOURCES
     src/BoardWidget.h src/BoardWidget.cpp
     src/SettingsDialog.h src/SettingsDialog.cpp
     src/MainWindow.h src/MainWindow.cpp
+    src/ModelUpdater.h src/ModelUpdater.cpp
 )
 
 qt_add_executable(NanoGo ${SOURCES})
-target_link_libraries(NanoGo PRIVATE Qt6::Widgets)
+target_link_libraries(NanoGo PRIVATE Qt6::Widgets Qt6::Network)
 set_target_properties(NanoGo PROPERTIES WIN32_EXECUTABLE ON)
 
 # Windows: 编译后自动把 Qt 的 dll 复制到 exe 旁边，方便直接双击运行
@@ -35,7 +36,7 @@ if(WIN32)
     find_program(WINDEPLOYQT windeployqt HINTS "${_qtbin}")
     if(WINDEPLOYQT)
         add_custom_command(TARGET NanoGo POST_BUILD
-            COMMAND "${WINDEPLOYQT}" --no-translations --no-compiler-runtime "$<TARGET_FILE:NanoGo>"
+            COMMAND "${WINDEPLOYQT}" --no-translations --no-compiler-runtime --networking "$<TARGET_FILE:NanoGo>"
             COMMENT "复制 Qt 运行库")
     endif()
 endif()

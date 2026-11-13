@@ -2,6 +2,7 @@
 #include "AppSettings.h"
 #include "GameTree.h"
 #include "KataGoEngine.h"
+#include "ModelUpdater.h"
 #include <QMainWindow>
 
 class BoardWidget;
@@ -23,6 +24,8 @@ private:
     void newGame();
     void newAiGame();
     void maybeAiMove();
+    void checkModel(bool manual);
+    void onModelList(const QList<NetworkInfo> &list);
     void openSgf();
     void saveSgf();
     void openSettings();
@@ -45,6 +48,8 @@ private:
     QString m_queryId;
     GameNode *m_queryNode = nullptr;
     QString m_sgfPath;
+    ModelUpdater *m_updater;
+    bool m_manualCheck = false;
     // 人机对弈
     Stone m_aiColor = Stone::Empty;
     int m_aiVisits = 400;
