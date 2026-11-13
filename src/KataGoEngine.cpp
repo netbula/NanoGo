@@ -33,6 +33,8 @@ QString KataGoEngine::writeConfig(const AppSettings &s) const
     o << "homeDataDir = " << QDir::toNativeSeparators(dir) << "\n";
     o << "numAnalysisThreads = 2\n";
     o << "numSearchThreadsPerAnalysisThread = " << s.searchThreads << "\n";
+    // 必填项：一次送进显卡的最大局面数。两个分析线程各自的搜索线程加起来正好填满一批。
+    o << "nnMaxBatchSize = " << qMax(8, s.searchThreads * 2) << "\n";
     o << "nnCacheSizePowerOfTwo = 21\n";
     o << "nnMutexPoolSizePowerOfTwo = 17\n";
     o << "wideRootNoise = 0.04\n";
@@ -173,14 +175,19 @@ QString KataGoEngine::explainFailure() const
 {
     const QString all = m_recentErr.join('\n');
     QString hint;
-    if (all.contains("CUDA", Qt::CaseInsensitive))
-        hint = QStringLiteral("CUDA 版 KataGo 与显卡或驱动不匹配（RTX 50 系列需要 CUDA 12.8 以上编译的版本）。建议在设置里改用 OpenCL 版。");
-    else if (all.contains("OpenCL", Qt::CaseInsensitive) || all.contains("CL_", Qt::CaseSensitive))
-        hint = QStringLiteral("显卡（OpenCL）初始化失败。请在设置里把“显卡”改成“自动”，或换一个编号（你电脑上 NVIDIA 显卡通常是 1 号）。");
-    else if (all.contains("model", Qt::CaseInsensitive) && (all.contains("open", Qt::CaseInsensitive) || all.contains("load", Qt::CaseInsensitive)))
-        hint = QStringLiteral("模型文件读取失败，可能文件损坏或下载不完整。");
-    else if (all.contains("config", Qt::CaseInsensitive))
+    static const QRegularExpression missingKey(QStringLiteral("Could not find key '([^']+)'"));
+    const auto mk = missingKey.match(all);
+    if (mk.hasMatch())
+        hint = QStringLiteral("配置文件缺少必填项 %1。这是 NanoGo 的问题，请把这个提示发给开发者。").arg(mk.captured(1));
+    else if (all.contains("config", Qt::CaseInsensitive) && all.contains("exception", Qt::CaseInsensitive))
         hint = QStringLiteral("配置文件有问题。");
+    else if (all.contains("CUDA", Qt::CaseInsensitive) && all.contains("error", Qt::CaseInsensitive))
+        hint = QStringLiteral("CUDA 版 KataGo 与显卡或驱动不匹配（RTX 50 系列需要 CUDA 12.8 以上编译的版本）。建议在设置里改用 OpenCL 版。");
+    else if (all.contains("OpenCL", Qt::CaseInsensitive) && (all.contains("error", Qt::CaseInsensitive) || all.contains("CL_", Qt::CaseSensitive)))
+        hint = QStringLiteral("显卡（OpenCL）初始化失败。请在设置里把“显卡”改成“自动”，或换一个编号（你电脑上 NVIDIA 显卡通常是 1 号）。");
+    else if (all.contains("exception", Qt::CaseInsensitive) && all.contains("model", Qt::CaseInsensitive)
+             && (all.contains("open", Qt::CaseInsensitive) || all.contains("load", Qt::CaseInsensitive) || all.contains("gz", Qt::CaseInsensitive)))
+        hint = QStringLiteral("模型文件读取失败，可能文件损坏或下载不完整。");
     else
         hint = QStringLiteral("KataGo 意外退出。");
     const QStringList tail = m_recentErr.mid(qMax(0, m_recentErr.size() - 6));
