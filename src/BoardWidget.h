@@ -1,0 +1,37 @@
+#pragma once
+#include "GameTree.h"
+#include <QWidget>
+
+class BoardWidget : public QWidget {
+    Q_OBJECT
+public:
+    explicit BoardWidget(GameTree *tree, QWidget *parent = nullptr);
+    void setShowCandidates(bool on) { m_showCandidates = on; update(); }
+    bool showCandidates() const { return m_showCandidates; }
+    void setShowOwnership(bool on) { m_showOwnership = on; update(); }
+    bool showOwnership() const { return m_showOwnership; }
+
+    static QString toGtp(int x, int y, int size);
+    static bool fromGtp(const QString &s, int size, int *x, int *y);
+
+signals:
+    void pointClicked(int x, int y);
+
+protected:
+    void paintEvent(QPaintEvent *) override;
+    void mousePressEvent(QMouseEvent *e) override;
+    void mouseMoveEvent(QMouseEvent *e) override;
+    void leaveEvent(QEvent *) override;
+    QSize sizeHint() const override { return {760, 760}; }
+
+private:
+    bool pixelToPoint(QPointF p, int *x, int *y) const;
+    QPointF pointToPixel(int x, int y) const;
+    void drawStone(QPainter &p, QPointF c, Stone s, double r, double alpha = 1.0) const;
+
+    GameTree *m_tree;
+    double m_cell = 0, m_left = 0, m_top = 0;
+    QPoint m_hover{-1, -1};
+    bool m_showCandidates = true;
+    bool m_showOwnership = false;
+};

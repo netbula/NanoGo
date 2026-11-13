@@ -1,0 +1,356 @@
+#include "MainWindow.h"
+#include "BoardWidget.h"
+#include "SettingsDialog.h"
+#include "Sgf.h"
+#include <QAction>
+#include <QApplication>
+#include <QPushButton>
+#include <QCloseEvent>
+#include <QDockWidget>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QGroupBox>
+#include <QJsonArray>
+#include <QLabel>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QSplitter>
+#include <QStatusBar>
+#include <QToolBar>
+#include <QVBoxLayout>
+
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_engine(new KataGoEngine(this))
+{
+    m_settings.load();
+    m_tree.setKomi(m_settings.komi);
+    m_tree.setRules(m_settings.rules);
+    buildUi();
+    connect(m_engine, &KataGoEngine::stateChanged, this, &MainWindow::onEngineState);
+    connect(m_engine, &KataGoEngine::analysisReceived, this, &MainWindow::onAnalysis);
+    connect(m_engine, &KataGoEngine::logLine, this, [this](const QString &l) { m_log->appendPlainText(l); });
+    positionChanged();
+    m_engine->start(m_settings);
+    if (qEnvironmentVariableIsSet("NANOGO_SCREENSHOT")) {
+        for (QPoint p : {QPoint(15, 3), QPoint(3, 15), QPoint(16, 15), QPoint(2, 3)}) m_tree.play(p.x(), p.y());
+        positionChanged();
+        m_analyzeAct->setChecked(true);
+    }
+}
+
+MainWindow::~MainWindow() { m_engine->stop(); }
+
+void MainWindow::closeEvent(QCloseEvent *e)
+{
+    m_engine->stop();
+    e->accept();
+}
+
+void MainWindow::buildUi()
+{
+    setWindowTitle(QStringLiteral("NanoGo 围棋"));
+    resize(1280, 860);
+
+    m_board = new BoardWidget(&m_tree, this);
+    connect(m_board, &BoardWidget::pointClicked, this, &MainWindow::onPointClicked);
+
+    auto *side = new QWidget(this);
+    side->setMinimumWidth(320);
+    auto *v = new QVBoxLayout(side);
+
+    auto *gameBox = new QGroupBox(QStringLiteral("对局"), side);
+    auto *gl = new QVBoxLayout(gameBox);
+    m_gameInfo = new QLabel(gameBox);
+    m_gameInfo->setTextFormat(Qt::RichText);
+    gl->addWidget(m_gameInfo);
+    v->addWidget(gameBox);
+
+    auto *anaBox = new QGroupBox(QStringLiteral("分析"), side);
+    auto *al = new QVBoxLayout(anaBox);
+    m_analysisInfo = new QLabel(QStringLiteral("按空格键开始分析"), anaBox);
+    m_analysisInfo->setTextFormat(Qt::RichText);
+    QFont big = m_analysisInfo->font(); big.setPointSize(big.pointSize() + 2);
+    m_analysisInfo->setFont(big);
+    al->addWidget(m_analysisInfo);
+    v->addWidget(anaBox);
+
+    auto *cBox = new QGroupBox(QStringLiteral("注释"), side);
+    auto *cl = new QVBoxLayout(cBox);
+    m_comment = new QPlainTextEdit(cBox);
+    m_comment->setPlaceholderText(QStringLiteral("这一手的注释…"));
+    connect(m_comment, &QPlainTextEdit::textChanged, this, [this] { m_tree.current()->comment = m_comment->toPlainText(); });
+    cl->addWidget(m_comment);
+    v->addWidget(cBox, 1);
+
+    auto *logBox = new QGroupBox(QStringLiteral("引擎日志"), side);
+    auto *ll = new QVBoxLayout(logBox);
+    m_log = new QPlainTextEdit(logBox);
+    m_log->setReadOnly(true);
+    m_log->setMaximumBlockCount(2000);
+    QFont mono("Consolas"); mono.setStyleHint(QFont::Monospace); mono.setPointSize(8);
+    m_log->setFont(mono);
+    ll->addWidget(m_log);
+    v->addWidget(logBox, 1);
+
+    auto *split = new QSplitter(this);
+    split->addWidget(m_board);
+    split->addWidget(side);
+    split->setStretchFactor(0, 3);
+    split->setStretchFactor(1, 1);
+    setCentralWidget(split);
+
+    m_engineStatus = new QLabel(this);
+    statusBar()->addPermanentWidget(m_engineStatus, 1);
+
+    // 菜单
+    QMenu *file = menuBar()->addMenu(QStringLiteral("文件(&F)"));
+    file->addAction(QStringLiteral("新对局"), QKeySequence::New, this, &MainWindow::newGame);
+    file->addAction(QStringLiteral("打开棋谱…"), QKeySequence::Open, this, &MainWindow::openSgf);
+    file->addAction(QStringLiteral("保存棋谱…"), QKeySequence::Save, this, &MainWindow::saveSgf);
+    file->addSeparator();
+    file->addAction(QStringLiteral("退出"), QKeySequence::Quit, this, &QWidget::close);
+
+    QMenu *nav = menuBar()->addMenu(QStringLiteral("棋局(&G)"));
+    auto addNav = [&](const QString &t, QKeySequence k, auto fn) {
+        QAction *a = nav->addAction(t, k, this, [this, fn] { if ((m_tree.*fn)()) positionChanged(); });
+        return a;
+    };
+    QAction *backA = addNav(QStringLiteral("后退一步"), QKeySequence(Qt::Key_Left), &GameTree::back);
+    QAction *fwdA = addNav(QStringLiteral("前进一步"), QKeySequence(Qt::Key_Right), &GameTree::forward);
+    QAction *startA = nav->addAction(QStringLiteral("回到开头"), QKeySequence(Qt::Key_Home), this, [this] { m_tree.toStart(); positionChanged(); });
+    QAction *endA = nav->addAction(QStringLiteral("走到最后"), QKeySequence(Qt::Key_End), this, [this] { m_tree.toEnd(); positionChanged(); });
+    nav->addSeparator();
+    QAction *passA = nav->addAction(QStringLiteral("停一手"), QKeySequence(Qt::CTRL | Qt::Key_P), this, [this] { m_tree.pass(); positionChanged(); });
+
+    QMenu *ana = menuBar()->addMenu(QStringLiteral("分析(&A)"));
+    m_analyzeAct = ana->addAction(QStringLiteral("开始/停止分析"));
+    m_analyzeAct->setShortcut(QKeySequence(Qt::Key_Space));
+    m_analyzeAct->setCheckable(true);
+    connect(m_analyzeAct, &QAction::toggled, this, [this](bool on) {
+        if (on) requestAnalysis();
+        else { m_engine->terminate(m_queryId); m_queryId.clear(); }
+        refreshInfo();
+    });
+    m_candAct = ana->addAction(QStringLiteral("显示候选点"));
+    m_candAct->setCheckable(true);
+    m_candAct->setChecked(true);
+    m_candAct->setShortcut(QKeySequence(Qt::Key_H));
+    connect(m_candAct, &QAction::toggled, m_board, &BoardWidget::setShowCandidates);
+    m_ownAct = ana->addAction(QStringLiteral("显示形势（地盘）"));
+    m_ownAct->setCheckable(true);
+    m_ownAct->setShortcut(QKeySequence(Qt::Key_T));
+    connect(m_ownAct, &QAction::toggled, m_board, &BoardWidget::setShowOwnership);
+    ana->addSeparator();
+    ana->addAction(QStringLiteral("重启引擎"), this, &MainWindow::restartEngine);
+
+    QMenu *set = menuBar()->addMenu(QStringLiteral("设置(&S)"));
+    set->addAction(QStringLiteral("引擎与对局设置…"), this, &MainWindow::openSettings);
+
+    QToolBar *tb = addToolBar(QStringLiteral("工具栏"));
+    tb->setMovable(false);
+    tb->addAction(startA);
+    tb->addAction(backA);
+    tb->addAction(fwdA);
+    tb->addAction(endA);
+    tb->addSeparator();
+    tb->addAction(passA);
+    tb->addSeparator();
+    tb->addAction(m_analyzeAct);
+    tb->addAction(m_candAct);
+    tb->addAction(m_ownAct);
+}
+
+void MainWindow::newGame()
+{
+    m_engine->terminateAll();
+    m_queryId.clear();
+    m_queryNode = nullptr;
+    m_tree.adoptRoot(new GameNode, 19);
+    m_tree.setKomi(m_settings.komi);
+    m_tree.setRules(m_settings.rules);
+    m_tree.playerBlack.clear(); m_tree.playerWhite.clear(); m_tree.result.clear();
+    m_sgfPath.clear();
+    positionChanged();
+}
+
+void MainWindow::openSgf()
+{
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("打开棋谱"), QFileInfo(m_sgfPath).absolutePath(),
+                                                      QStringLiteral("SGF 棋谱 (*.sgf);;所有文件 (*)"));
+    if (path.isEmpty()) return;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, QStringLiteral("打开失败"), QStringLiteral("无法读取文件：%1").arg(path));
+        return;
+    }
+    m_engine->terminateAll();
+    m_queryId.clear();
+    m_queryNode = nullptr;
+    QString err;
+    if (!Sgf::load(Sgf::decode(f.readAll()), m_tree, &err)) {
+        QMessageBox::warning(this, QStringLiteral("打开失败"), err);
+        newGame();
+        return;
+    }
+    m_sgfPath = path;
+    setWindowTitle(QStringLiteral("NanoGo 围棋 - %1").arg(QFileInfo(path).fileName()));
+    positionChanged();
+}
+
+void MainWindow::saveSgf()
+{
+    QString path = QFileDialog::getSaveFileName(this, QStringLiteral("保存棋谱"), m_sgfPath, QStringLiteral("SGF 棋谱 (*.sgf)"));
+    if (path.isEmpty()) return;
+    if (!path.endsWith(".sgf", Qt::CaseInsensitive)) path += ".sgf";
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QMessageBox::warning(this, QStringLiteral("保存失败"), QStringLiteral("无法写入：%1").arg(path));
+        return;
+    }
+    f.write(Sgf::save(m_tree).toUtf8());
+    m_sgfPath = path;
+    statusBar()->showMessage(QStringLiteral("已保存到 %1").arg(path), 5000);
+}
+
+void MainWindow::openSettings()
+{
+    SettingsDialog dlg(m_settings, m_engine->openclDevices(), this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    AppSettings old = m_settings;
+    m_settings = dlg.result();
+    m_settings.save();
+    const bool engineChanged = old.katagoPath != m_settings.katagoPath || old.modelPath != m_settings.modelPath
+                               || old.gpuDevice != m_settings.gpuDevice || old.searchThreads != m_settings.searchThreads;
+    if (engineChanged || m_engine->state() == KataGoEngine::State::Failed) restartEngine();
+    else if (m_analyzeAct->isChecked()) requestAnalysis();
+}
+
+void MainWindow::restartEngine()
+{
+    m_queryId.clear();
+    m_queryNode = nullptr;
+    m_log->appendPlainText(QStringLiteral("—— 重启引擎 ——"));
+    m_engine->start(m_settings);
+}
+
+void MainWindow::onPointClicked(int x, int y)
+{
+    if (m_tree.play(x, y)) positionChanged();
+    else QApplication::beep();
+}
+
+void MainWindow::onEngineState(KataGoEngine::State s, const QString &msg)
+{
+    QString color = s == KataGoEngine::State::Ready ? "green" : s == KataGoEngine::State::Failed ? "red" : "#b07000";
+    m_engineStatus->setText(QStringLiteral("<span style='color:%1'>●</span> %2").arg(color, msg.section('\n', 0, 0).toHtmlEscaped()));
+    if (s == KataGoEngine::State::Ready && m_analyzeAct->isChecked()) requestAnalysis();
+    if (s == KataGoEngine::State::Failed) {
+        QMessageBox box(QMessageBox::Warning, QStringLiteral("引擎出错"), msg, QMessageBox::Ok, this);
+        QPushButton *settingsBtn = box.addButton(QStringLiteral("打开设置"), QMessageBox::ActionRole);
+        box.exec();
+        if (box.clickedButton() == static_cast<QAbstractButton *>(settingsBtn)) openSettings();
+    }
+}
+
+QJsonObject MainWindow::buildQuery() const
+{
+    const int n = m_tree.boardSize();
+    QJsonObject q;
+    q["rules"] = m_tree.rules();
+    q["komi"] = m_tree.komi();
+    q["boardXSize"] = n;
+    q["boardYSize"] = n;
+    q["maxVisits"] = m_settings.maxVisits;
+    q["includeOwnership"] = true;
+    q["includePVVisits"] = false;
+    q["reportDuringSearchEvery"] = 0.4;
+    q["analyzeTurns"] = QJsonArray();
+
+    const QList<GameNode *> path = m_tree.pathToCurrent();
+    bool midSetup = false;
+    for (int i = 1; i < path.size(); ++i)
+        if (!path[i]->addBlack.isEmpty() || !path[i]->addWhite.isEmpty()) midSetup = true;
+
+    QJsonArray initial, moves;
+    auto colorStr = [](Stone s) { return s == Stone::Black ? QStringLiteral("B") : QStringLiteral("W"); };
+    if (midSetup) {
+        // 中途有摆子：直接把当前盘面当作初始局面
+        const Board &b = m_tree.board();
+        for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x)
+            if (b.at(x, y) != Stone::Empty) initial.append(QJsonArray{colorStr(b.at(x, y)), BoardWidget::toGtp(x, y, n)});
+    } else {
+        for (const QPoint &p : path[0]->addBlack) initial.append(QJsonArray{"B", BoardWidget::toGtp(p.x(), p.y(), n)});
+        for (const QPoint &p : path[0]->addWhite) initial.append(QJsonArray{"W", BoardWidget::toGtp(p.x(), p.y(), n)});
+        for (int i = 1; i < path.size(); ++i) {
+            const Move &m = path[i]->move;
+            if (m.isValid()) moves.append(QJsonArray{colorStr(m.color), BoardWidget::toGtp(m.x, m.y, n)});
+        }
+    }
+    q["initialStones"] = initial;
+    q["moves"] = moves;
+    if (moves.isEmpty()) q["initialPlayer"] = colorStr(m_tree.toPlay());
+    q["analyzeTurns"] = QJsonArray{moves.size()};
+    return q;
+}
+
+void MainWindow::requestAnalysis()
+{
+    if (!m_analyzeAct->isChecked() || m_engine->state() != KataGoEngine::State::Ready) return;
+    if (!m_queryId.isEmpty()) m_engine->terminate(m_queryId);
+    m_queryNode = m_tree.current();
+    m_queryId = m_engine->analyze(buildQuery());
+}
+
+void MainWindow::onAnalysis(const QJsonObject &resp)
+{
+    if (resp.value("id").toString() != m_queryId || !m_queryNode) return;
+    const QJsonObject root = resp.value("rootInfo").toObject();
+    Analysis &a = m_queryNode->analysis;
+    a.valid = true;
+    a.winrateBlack = root.value("winrate").toDouble();
+    a.scoreLeadBlack = root.value("scoreLead").toDouble();
+    a.visits = root.value("visits").toInt();
+    a.raw = resp;
+    if (m_queryNode == m_tree.current()) {
+        m_board->update();
+        refreshInfo();
+    }
+}
+
+void MainWindow::positionChanged()
+{
+    m_comment->blockSignals(true);
+    m_comment->setPlainText(m_tree.current()->comment);
+    m_comment->blockSignals(false);
+    m_board->update();
+    refreshInfo();
+    requestAnalysis();
+}
+
+void MainWindow::refreshInfo()
+{
+    const GameNode *cur = m_tree.current();
+    const int moveNo = cur->depth();
+    const QString toPlay = m_tree.toPlay() == Stone::Black ? QStringLiteral("黑") : QStringLiteral("白");
+    const QString pb = m_tree.playerBlack.isEmpty() ? QStringLiteral("黑方") : m_tree.playerBlack.toHtmlEscaped();
+    const QString pw = m_tree.playerWhite.isEmpty() ? QStringLiteral("白方") : m_tree.playerWhite.toHtmlEscaped();
+    QString lastMove;
+    if (cur->move.isValid())
+        lastMove = QStringLiteral("，上一手 %1 %2").arg(cur->move.color == Stone::Black ? "黑" : "白",
+                                                     BoardWidget::toGtp(cur->move.x, cur->move.y, m_tree.boardSize()));
+    m_gameInfo->setText(QStringLiteral("<b>%1</b> 对 <b>%2</b><br>第 %3 手%4<br>轮到 %5 走 · 贴 %6 目<br>提子：黑 %7 · 白 %8%9")
+                            .arg(pb, pw).arg(moveNo).arg(lastMove, toPlay).arg(m_tree.komi())
+                            .arg(m_tree.board().capturesBlack()).arg(m_tree.board().capturesWhite())
+                            .arg(m_tree.result.isEmpty() ? QString() : QStringLiteral("<br>结果：%1").arg(m_tree.result.toHtmlEscaped())));
+
+    const Analysis &a = cur->analysis;
+    if (!a.valid) {
+        m_analysisInfo->setText(m_analyzeAct->isChecked() ? QStringLiteral("计算中…") : QStringLiteral("按空格键开始分析"));
+        return;
+    }
+    const double lead = a.scoreLeadBlack;
+    const QString leader = lead >= 0 ? QStringLiteral("黑") : QStringLiteral("白");
+    m_analysisInfo->setText(QStringLiteral("黑胜率 <b>%1%</b><br>%2 领先 <b>%3</b> 目<br><span style='color:gray'>计算量 %4</span>")
+                                .arg(a.winrateBlack * 100, 0, 'f', 1).arg(leader).arg(qAbs(lead), 0, 'f', 1).arg(a.visits));
+}
