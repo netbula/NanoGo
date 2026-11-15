@@ -1005,6 +1005,9 @@ void MainWindow::refreshInfo()
         else if (m_aiPaused) turn = T("<b style='color:#b70'>AI 已暂停</b>：落子或按 Ctrl+Enter 继续");
         else turn = T("<b style='color:#27a'>AI 思考中…</b>");
         turn += "<br>";
+    } else {
+        // 没有在和 AI 下：双方都由你摆，提示怎样开始对弈
+        turn = T("<span style='color:#888'>摆棋/复盘模式：黑白都由你下。想和 AI 下，点“人机对弈”或“交换黑白”。</span><br>");
     }
     const Analysis &a = cur->analysis;
     if (!a.valid) {
