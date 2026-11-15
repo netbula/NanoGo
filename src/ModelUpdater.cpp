@@ -27,7 +27,7 @@ void ModelUpdater::checkForUpdates()
 void ModelUpdater::fetchPage(const QString &url)
 {
     QNetworkRequest req{QUrl(url)};
-    req.setHeader(QNetworkRequest::UserAgentHeader, "NanoGo/0.1");
+    req.setHeader(QNetworkRequest::UserAgentHeader, "NanoGo/0.2");
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     req.setTransferTimeout(30000);
     m_reply = m_net->get(req);
@@ -104,7 +104,7 @@ void ModelUpdater::download(const NetworkInfo &n)
     }
     m_hash = new QCryptographicHash(QCryptographicHash::Sha256);
     QNetworkRequest req{QUrl(n.url)};
-    req.setHeader(QNetworkRequest::UserAgentHeader, "NanoGo/0.1");
+    req.setHeader(QNetworkRequest::UserAgentHeader, "NanoGo/0.2");
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     m_reply = m_net->get(req);
     connect(m_reply, &QNetworkReply::readyRead, this, &ModelUpdater::onDownloadData);

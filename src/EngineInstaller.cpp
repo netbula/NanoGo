@@ -71,7 +71,7 @@ void EngineInstaller::install(const EngineBuild &b)
     }
     m_hash = new QCryptographicHash(QCryptographicHash::Sha256);
     QNetworkRequest req{QUrl(b.url)};
-    req.setHeader(QNetworkRequest::UserAgentHeader, "NanoGo/0.1");
+    req.setHeader(QNetworkRequest::UserAgentHeader, "NanoGo/0.2");
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     m_reply = m_net->get(req);
     connect(m_reply, &QNetworkReply::readyRead, this, [this] {

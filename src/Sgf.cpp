@@ -199,7 +199,7 @@ bool Sgf::load(const QString &text, GameTree &tree, QString *error)
 
 QString Sgf::save(const GameTree &tree)
 {
-    QString out = QStringLiteral("(;GM[1]FF[4]CA[UTF-8]AP[NanoGo:0.1]SZ[%1]KM[%2]")
+    QString out = QStringLiteral("(;GM[1]FF[4]CA[UTF-8]AP[NanoGo:0.2]SZ[%1]KM[%2]")
                       .arg(tree.boardSize()).arg(tree.komi());
     const QString ru = tree.rules() == "japanese" ? "Japanese" : tree.rules() == "korean" ? "Korean"
                      : tree.rules() == "aga" ? "AGA" : tree.rules() == "tromp-taylor" ? "Tromp-Taylor" : "Chinese";
