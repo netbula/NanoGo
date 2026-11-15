@@ -38,6 +38,9 @@ qt_add_resources(NanoGo "icons" PREFIX "/" BASE res FILES ${NANOGO_ICON_PNGS})
 set_target_properties(NanoGo PROPERTIES WIN32_EXECUTABLE ON)
 if(WIN32)
     target_link_libraries(NanoGo PRIVATE dxgi)
+    # exe 文件图标（资源管理器、桌面快捷方式里显示）。rc 文件里写绝对路径，避免找不到 ico
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nanogo_icon.rc" "IDI_ICON1 ICON \"${CMAKE_CURRENT_SOURCE_DIR}/res/nanogo.ico\"\n")
+    target_sources(NanoGo PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nanogo_icon.rc")
 endif()
 
 # Windows: 编译后自动把 Qt 的 dll 复制到 exe 旁边，方便直接双击运行
