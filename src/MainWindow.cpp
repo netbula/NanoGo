@@ -58,10 +58,10 @@ static void fillStrengthBox(QComboBox *box, bool verbose)
         box->addItem(T(label), v);
     box->insertSeparator(box->count());
     for (int v : {-20, -15, -12, -10, -8, -6, -5, -4, -3, -2, -1, -101, -102, -103, -104, -105, -106, -107, -109})
-        box->addItem(verbose ? T("像人类 %1 那样下").arg(rankLabel(v)) : T("人类 %1").arg(rankLabel(v)), v);
+        box->addItem(verbose ? T("像业余 %1 那样下").arg(rankLabel(v)) : T("业余 %1").arg(rankLabel(v)), v);
 }
 
-static QString strengthText(int v) { return isRank(v) ? T("人类 %1").arg(rankLabel(v)) : T("每步 %1 次计算").arg(v); }
+static QString strengthText(int v) { return isRank(v) ? T("业余 %1").arg(rankLabel(v)) : T("每步 %1 次计算").arg(v); }
 
 
 MainWindow::MainWindow(QWidget *parent)
@@ -671,7 +671,7 @@ void MainWindow::buildUi()
     tb->addWidget(new QLabel(T(" AI 强度："), tb));
     m_strengthBox = new QComboBox(tb);
     fillStrengthBox(m_strengthBox, false);
-    m_strengthBox->setToolTip(T("AI 每步的计算量越大越强；选“人类 某段/级”时 AI 模仿该水平的人类下法。对局中随时可以改"));
+    m_strengthBox->setToolTip(T("AI 每步的计算量越大越强；选“业余 某段/级”时 AI 模仿该水平的人类下法。对局中随时可以改"));
     connect(m_strengthBox, &QComboBox::activated, this, [this] { setAiVisits(m_strengthBox->currentData().toInt()); });
     m_strengthBox->setCurrentIndex(qMax(0, m_strengthBox->findData(m_aiVisits)));
     tb->addWidget(m_strengthBox);
@@ -1236,7 +1236,7 @@ void MainWindow::newAiGame()
     fillStrengthBox(strength, true);
     strength->setCurrentIndex(qMax(0, strength->findData(m_aiVisits)));
     form->addRow(T("AI 强度："), strength);
-    auto *note = new QLabel(T("提示：按计算量的选项即使只算 1 次也有职业以上水平。\n想下得过，选“像人类 X 级/段那样下”：AI 模仿该水平的人类，第一次选要下载约 95 MB 的模型。"), &dlg);
+    auto *note = new QLabel(T("提示：按计算量的选项即使只算 1 次也有职业以上水平。\n想下得过，选“像业余 X 级/段那样下”：AI 模仿该水平的人类，第一次选要下载约 95 MB 的模型。"), &dlg);
     note->setStyleSheet("color: gray;");
     form->addRow(note);
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
