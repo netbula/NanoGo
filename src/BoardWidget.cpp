@@ -30,6 +30,13 @@ bool BoardWidget::fromGtp(const QString &s, int size, int *x, int *y)
     return *x >= 0 && *x < size && *y >= 0 && *y < size;
 }
 
+QRect BoardWidget::visibleRect() const
+{
+    const int n = m_tree->boardSize();
+    const QRect all(0, 0, n, n);
+    return m_view.isValid() ? (m_view & all) : all;
+}
+
 QPointF BoardWidget::pointToPixel(int x, int y) const
 {
     return {m_left + x * m_cell, m_top + y * m_cell};
@@ -40,7 +47,7 @@ bool BoardWidget::pixelToPoint(QPointF p, int *x, int *y) const
     if (m_cell <= 0) return false;
     *x = int(std::lround((p.x() - m_left) / m_cell));
     *y = int(std::lround((p.y() - m_top) / m_cell));
-    return *x >= 0 && *y >= 0 && *x < m_tree->boardSize() && *y < m_tree->boardSize();
+    return *x >= 0 && *y >= 0 && *x < m_tree->boardSize() && *y < m_tree->boardSize() && visibleRect().contains(*x, *y);
 }
 
 void BoardWidget::drawStone(QPainter &p, QPointF c, Stone s, double r, double alpha) const
@@ -61,15 +68,18 @@ void BoardWidget::paintEvent(QPaintEvent *)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     const int n = m_tree->boardSize();
-    const double side = qMin(width(), height());
-    m_cell = side / (n + 1);
-    m_left = (width() - side) / 2 + m_cell;
-    m_top = (height() - side) / 2 + m_cell;
+    // 只显示棋盘的一部分（做死活题时放大角上）
+    const QRect v = visibleRect();
+    m_cell = qMin(width() / (v.width() + 1.0), height() / (v.height() + 1.0));
+    m_left = (width() - m_cell * (v.width() + 1)) / 2 + m_cell - v.left() * m_cell;
+    m_top = (height() - m_cell * (v.height() + 1)) / 2 + m_cell - v.top() * m_cell;
 
     // 棋盘底色
-    QRectF boardRect(m_left - m_cell * 0.8, m_top - m_cell * 0.8, m_cell * (n - 1 + 1.6), m_cell * (n - 1 + 1.6));
+    const QPointF tl = pointToPixel(v.left(), v.top()), br = pointToPixel(v.right(), v.bottom());
+    QRectF boardRect(tl - QPointF(m_cell * 0.8, m_cell * 0.8), br + QPointF(m_cell * 0.8, m_cell * 0.8));
     p.fillRect(rect(), palette().window());
     p.fillRect(boardRect, QColor(220, 179, 92));
+    p.setClipRect(boardRect);
 
     // 网格
     p.setPen(QPen(QColor(40, 30, 10), 1.0));
@@ -90,10 +100,12 @@ void BoardWidget::paintEvent(QPaintEvent *)
     f.setPixelSize(qMax(9, int(m_cell * 0.32)));
     p.setFont(f);
     p.setPen(QColor(60, 45, 20));
-    for (int i = 0; i < n; ++i) {
-        QPointF top = pointToPixel(i, 0) - QPointF(0, m_cell * 0.62);
+    for (int i = v.left(); i <= v.right(); ++i) {
+        QPointF top = pointToPixel(i, v.top()) - QPointF(0, m_cell * 0.62);
         p.drawText(QRectF(top.x() - m_cell / 2, top.y() - m_cell / 4, m_cell, m_cell / 2), Qt::AlignCenter, QString(QChar(kCols[i])));
-        QPointF left = pointToPixel(0, i) - QPointF(m_cell * 0.62, 0);
+    }
+    for (int i = v.top(); i <= v.bottom(); ++i) {
+        QPointF left = pointToPixel(v.left(), i) - QPointF(m_cell * 0.62, 0);
         p.drawText(QRectF(left.x() - m_cell / 2, left.y() - m_cell / 4, m_cell, m_cell / 2), Qt::AlignCenter, QString::number(n - i));
     }
 
@@ -158,7 +170,7 @@ void BoardWidget::paintEvent(QPaintEvent *)
     }
 
     // 候选点 + 变化图（鼠标悬停的优先，其次是右侧选中的参考图）
-    if ((m_showCandidates || !m_pinnedPv.isEmpty()) && raw.contains("moveInfos")) {
+    if ((m_showCandidates && raw.contains("moveInfos")) || !m_pinnedPv.isEmpty()) {
         const QJsonArray infos = raw.value("moveInfos").toArray();
         int totalVisits = 0;
         for (const auto &v : infos) totalVisits = qMax(totalVisits, v.toObject().value("visits").toInt());

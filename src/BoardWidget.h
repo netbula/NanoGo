@@ -17,6 +17,10 @@ public:
     // 坏棋标记：key = y*n+x，value = 1 疑问手 / 2 恶手
     void setMoveMarks(const QHash<int, int> &marks) { m_moveMarks = marks; update(); }
 
+    // 只显示这一块（棋盘坐标，左上角为 0,0），空 = 整个棋盘
+    void setViewRect(const QRect &r) { m_view = r; update(); }
+    QRect visibleRect() const;
+
     static QString toGtp(int x, int y, int size);
     static bool fromGtp(const QString &s, int size, int *x, int *y);
 
@@ -42,4 +46,5 @@ private:
     bool m_showOwnership = false;
     QStringList m_pinnedPv;
     QHash<int, int> m_moveMarks;
+    QRect m_view;
 };

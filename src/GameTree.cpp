@@ -83,6 +83,12 @@ void GameTree::rebuild()
     // 让子棋：根节点只有黑子摆放时轮白走
     if (m_current == m_root && !m_root->addBlack.isEmpty() && m_root->addWhite.isEmpty())
         m_toPlay = Stone::White;
+    // SGF 的 PL[B]/PL[W]（死活题常用）指定开局谁先走
+    if (m_current == m_root && m_root->extraProps.contains(QStringLiteral("PL"))) {
+        const QString pl = m_root->extraProps.value(QStringLiteral("PL")).value(0).trimmed().toUpper();
+        if (pl.startsWith('W')) m_toPlay = Stone::White;
+        else if (pl.startsWith('B')) m_toPlay = Stone::Black;
+    }
 }
 
 bool GameTree::play(int x, int y)

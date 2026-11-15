@@ -28,6 +28,7 @@ set(SOURCES
     src/Icons.h src/Icons.cpp
     src/Review.h src/Review.cpp
     src/WinrateGraph.h src/WinrateGraph.cpp
+    src/Tsumego.h src/Tsumego.cpp src/MainWindowTsumego.cpp
     src/I18n.h src/I18n.cpp
     src/HardwareInfo.h src/HardwareInfo.cpp
 )
@@ -37,6 +38,7 @@ target_link_libraries(NanoGo PRIVATE Qt6::Widgets Qt6::Network)
 # 按钮图示：Lucide 图标（ISC 许可证）预先渲染成 PNG，编进程序
 file(GLOB NANOGO_ICON_PNGS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} res/icons/*.png)
 qt_add_resources(NanoGo "icons" PREFIX "/" BASE res FILES ${NANOGO_ICON_PNGS})
+qt_add_resources(NanoGo "tsumego" PREFIX "/" BASE res FILES res/tsumego/basic.sgf)
 set_target_properties(NanoGo PROPERTIES WIN32_EXECUTABLE ON)
 if(WIN32)
     target_link_libraries(NanoGo PRIVATE dxgi)

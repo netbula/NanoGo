@@ -194,7 +194,13 @@ MainWindow::MainWindow(QWidget *parent)
     if (!m_firstModel && m_settings.autoUpdateModel
         && (!m_settings.lastModelCheck.isValid() || m_settings.lastModelCheck.secsTo(QDateTime::currentDateTime()) > 24 * 3600))
         QTimer::singleShot(3000, this, [this] { checkModel(false); });
-    if (qEnvironmentVariableIsSet("NANOGO_SCREENSHOT") && !qEnvironmentVariableIsSet("NANOGO_AUTOREVIEW")) {
+    // 开发用：NANOGO_TSUMEGO=题号 启动后直接进入死活题练习
+    if (qEnvironmentVariableIsSet("NANOGO_TSUMEGO")) {
+        QTimer::singleShot(500, this, [this] {
+            enterTsumego();
+            loadTsProblem(qEnvironmentVariableIntValue("NANOGO_TSUMEGO") - 1);
+        });
+    } else if (qEnvironmentVariableIsSet("NANOGO_SCREENSHOT") && !qEnvironmentVariableIsSet("NANOGO_AUTOREVIEW")) {
         for (QPoint p : {QPoint(15, 3), QPoint(3, 15), QPoint(16, 15), QPoint(2, 3)}) m_tree.play(p.x(), p.y());
         positionChanged();
         m_analyzeAct->setChecked(true);
@@ -419,9 +425,43 @@ void MainWindow::buildUi()
         positionChanged();
     });
     rv->addWidget(m_graph, 1);
+    m_reviewPanel = reviewPanel;
+
+    // 死活题练习时，棋盘下方换成做题面板
+    m_tsPanel = new QWidget(this);
+    auto *tv = new QVBoxLayout(m_tsPanel);
+    tv->setContentsMargins(4, 0, 4, 0);
+    m_tsTitle = new QLabel(m_tsPanel);
+    m_tsTitle->setTextFormat(Qt::RichText);
+    tv->addWidget(m_tsTitle);
+    m_tsStatus = new QLabel(m_tsPanel);
+    m_tsStatus->setTextFormat(Qt::RichText);
+    m_tsStatus->setWordWrap(true);
+    tv->addWidget(m_tsStatus);
+    auto *th = new QHBoxLayout;
+    auto addTsBtn = [&](const QString &text, auto fn) {
+        auto *b = new QPushButton(text, m_tsPanel);
+        connect(b, &QPushButton::clicked, this, fn);
+        th->addWidget(b);
+        return b;
+    };
+    addTsBtn(T("◀ 上一题"), [this] { loadTsProblem(m_tsIndex - 1); });
+    addTsBtn(T("下一题 ▶"), [this] { loadTsProblem(m_tsIndex + 1); });
+    addTsBtn(T("重来"), [this] { loadTsProblem(m_tsIndex); });
+    addTsBtn(T("悔一步"), [this] { tsUndo(); });
+    addTsBtn(T("看答案"), [this] { tsShowAnswer(); });
+    th->addStretch(1);
+    addTsBtn(T("打开题库…"), [this] { openTsCollection(); })->setToolTip(T("打开 SGF 格式的死活题文件（一个文件里可以有很多题），对错由 KataGo 判断"));
+    addTsBtn(T("退出做题"), [this] { exitTsumego(); });
+    tv->addLayout(th);
+    tv->addStretch(1);
+    m_tsPanel->hide();
+
     auto *left = new QSplitter(Qt::Vertical, this);
     left->addWidget(m_board);
     left->addWidget(reviewPanel);
+    left->addWidget(m_tsPanel);
+    m_leftSplit = left;
     left->setStretchFactor(0, 5);
     left->setStretchFactor(1, 1);
     left->setSizes({700, 170});
@@ -489,6 +529,14 @@ void MainWindow::buildUi()
     aiGoA->setShortcuts({QKeySequence(Qt::CTRL | Qt::Key_Return), QKeySequence(Qt::CTRL | Qt::Key_Enter)});
     QAction *swapA = nav->addAction(T("交换黑白"), QKeySequence(Qt::CTRL | Qt::Key_T), this, &MainWindow::swapSides);
     swapA->setToolTip(T("随时交换你和 AI 执的颜色；不在人机对弈中时，从当前局面开始和 AI 下，你走轮到的一方"));
+    nav->addSeparator();
+    m_tsAct = nav->addAction(T("死活题练习"), QKeySequence(Qt::CTRL | Qt::Key_L));
+    m_tsAct->setCheckable(true);
+    m_tsAct->setIcon(Icons::tsumego());
+    m_tsAct->setIconText(T("死活题"));
+    m_tsAct->setToolTip(T("死活题练习：KataGo 判断对错") + " (Ctrl+L)");
+    connect(m_tsAct, &QAction::triggered, this, [this](bool on) { on ? enterTsumego() : exitTsumego(); });
+    nav->addAction(T("打开死活题库…"), this, &MainWindow::openTsCollection);
 
     QMenu *ana = menuBar()->addMenu(T("分析(&A)"));
     m_analyzeAct = ana->addAction(T("开始/停止分析"));
@@ -620,6 +668,7 @@ void MainWindow::buildUi()
     tb->addAction(refA);
     tb->addSeparator();
     tb->addAction(countA);
+    tb->addAction(m_tsAct);
 }
 
 // 按段位下棋需要 KataGo 的人类风格模型：没有就问要不要下载，已下载但引擎没加载就重启引擎
@@ -681,6 +730,7 @@ void MainWindow::setAiVisits(int v)
 // 人机对弈中随时交换双方执色；没在对局时，从当前局面开始和 AI 下（你走轮到的一方）
 void MainWindow::swapSides()
 {
+    if (m_tsMode) return;
     if (!m_aiQueryId.isEmpty()) { m_engine->terminate(m_aiQueryId); m_aiQueryId.clear(); }
     m_aiNode = nullptr;
     m_aiOneShot = false;
@@ -702,6 +752,7 @@ void MainWindow::swapSides()
 
 void MainWindow::newGame()
 {
+    if (m_tsMode) exitTsumego();
     m_aiColor = Stone::Empty;
     m_aiQueryId.clear();
     m_aiNode = nullptr;
@@ -727,6 +778,7 @@ void MainWindow::openSgf()
     const QString path = QFileDialog::getOpenFileName(this, T("打开棋谱"), QFileInfo(m_sgfPath).absolutePath(),
                                                       T("SGF 棋谱 (*.sgf);;所有文件 (*)"));
     if (path.isEmpty()) return;
+    if (m_tsMode) exitTsumego();
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
         QMessageBox::warning(this, T("打开失败"), T("无法读取文件：%1").arg(path));
@@ -812,6 +864,7 @@ void MainWindow::restartEngine()
 
 void MainWindow::onPointClicked(int x, int y)
 {
+    if (m_tsMode) { tsOnClick(x, y); return; }
     if (m_aiColor != Stone::Empty && m_tree.toPlay() == m_aiColor) {
         statusBar()->showMessage(m_aiPaused ? T("现在轮到 AI：按 Ctrl+Enter 让 AI 走，或按 → 前进")
                                             : T("AI 正在思考，请稍候…"), 3000);
@@ -856,6 +909,7 @@ void MainWindow::onEngineState(KataGoEngine::State s, const QString &msg)
             // 人类风格模型不见了：退回普通强度，免得 AI 以为在按段位下其实是全力下
             setAiVisits(400);
         }
+        if (m_tsMode && m_tsState == TsState::Thinking) tsSendBest();
         maybeAiMove();
     }
     // 开发用：NANOGO_AUTOREVIEW=1 时引擎一就绪就整盘分析（自动测试用）
@@ -950,6 +1004,7 @@ void MainWindow::requestAnalysis()
 
 void MainWindow::onAnalysis(const QJsonObject &resp)
 {
+    if (m_tsMode && tsHandleResponse(resp)) return;
     if (!m_aiQueryId.isEmpty() && resp.value("id").toString() == m_aiQueryId) {
         if (resp.value("isDuringSearch").toBool()) return;
         m_aiQueryId.clear();
@@ -1087,6 +1142,7 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
 
 void MainWindow::positionChanged()
 {
+    if (m_tsMode) { tsAfterNavigate(); return; }
     autosave();
     m_pinnedMove.clear();
     m_board->setPinnedPv({});
@@ -1130,6 +1186,7 @@ void MainWindow::maybeAiMove()
 
 void MainWindow::sendAiQuery()
 {
+    if (m_tsMode) return;
     if (!m_aiQueryId.isEmpty()) m_engine->terminate(m_aiQueryId);
     QJsonObject q = buildQuery();
     q["maxVisits"] = isRank(m_aiVisits) ? 1 : m_aiVisits;
@@ -1149,6 +1206,7 @@ void MainWindow::sendAiQuery()
 
 void MainWindow::newAiGame()
 {
+    if (m_tsMode) exitTsumego();
     QDialog dlg(this);
     dlg.setWindowTitle(T("人机对弈"));
     auto *form = new QFormLayout(&dlg);
@@ -1306,6 +1364,7 @@ void MainWindow::jumpToMistake(int dir)
 
 void MainWindow::refreshInfo()
 {
+    if (m_tsMode) { tsRefresh(); return; }
     refreshReference();
     refreshReview();
     const GameNode *cur = m_tree.current();
@@ -1448,6 +1507,7 @@ void MainWindow::onModelList(const QList<NetworkInfo> &list)
 // 自动保存：每走一步都把整盘棋、当前位置和人机对弈状态写到 data 目录，下次打开自动恢复
 void MainWindow::autosave()
 {
+    if (m_tsMode) return; // 做题时不覆盖保存的棋局
     const QString dir = AppSettings::dataDir();
     QFile f(QDir(dir).filePath("autosave.sgf"));
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(Sgf::save(m_tree).toUtf8());

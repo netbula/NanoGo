@@ -17,4 +17,5 @@ QIcon candidates();
 QIcon territory();
 QIcon reference();
 QIcon count();
+QIcon tsumego();
 }

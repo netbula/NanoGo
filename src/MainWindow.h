@@ -5,6 +5,9 @@
 #include "ModelUpdater.h"
 #include "Review.h"
 #include "EngineInstaller.h"
+#include "Tsumego.h"
+#include <QJsonArray>
+#include <QRect>
 #include <QHash>
 #include <QMainWindow>
 
@@ -67,6 +70,37 @@ private:
     void startReview();
     void refreshReview();
     void jumpToMistake(int dir);
+    // 死活题练习（MainWindowTsumego.cpp）
+    void enterTsumego();
+    void exitTsumego();
+    void openTsCollection();
+    void loadTsProblem(int i);
+    QJsonObject tsQuery(Stone player) const;
+    void tsSendBest();
+    void tsOnClick(int x, int y);
+    bool tsHandleResponse(const QJsonObject &resp);
+    void tsAfterNavigate();
+    void tsUndo();
+    void tsShowAnswer();
+    void tsRefresh();
+    QString tsProgressGroup() const;
+    enum class TsState { Thinking, UserTurn, Replying, Solved, Failed };
+    bool m_tsMode = false;
+    QList<TsumegoProblem> m_tsProblems;
+    QString m_tsKey, m_tsName, m_tsMessage;
+    int m_tsIndex = 0;
+    Stone m_tsPlayer = Stone::Black;
+    QRect m_tsRect;
+    QJsonArray m_tsAllow, m_tsBestOwn;
+    TsState m_tsState = TsState::Thinking;
+    QString m_tsBestId, m_tsReplyId, m_tsBestMove, m_tsUserMove;
+    QStringList m_tsBestPv;
+    bool m_tsShowAnswerPending = false;
+    bool m_tsWasAnalyzing = false, m_tsWasCandidates = true;
+    QWidget *m_reviewPanel = nullptr, *m_tsPanel = nullptr;
+    QLabel *m_tsTitle = nullptr, *m_tsStatus = nullptr;
+    QAction *m_tsAct = nullptr;
+    class QSplitter *m_leftSplit = nullptr;
     class WinrateGraph *m_graph = nullptr;
     QLabel *m_reviewInfo = nullptr;
     class QPushButton *m_reviewBtn = nullptr;

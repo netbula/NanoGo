@@ -82,5 +82,6 @@ QIcon candidates() { return fromRes("candidates"); }
 QIcon territory() { return fromRes("territory"); }
 QIcon reference() { return fromRes("reference"); }
 QIcon count() { return fromRes("count"); }
+QIcon tsumego() { return fromRes("tsumego"); }
 
 } // namespace Icons
