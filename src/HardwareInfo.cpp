@@ -152,6 +152,7 @@ bool HardwareInfo::cpuHasAvx2()
 
 QString HardwareInfo::describe(const GpuInfo &g)
 {
-    return T("%1: %2（%3 MB，%4）").arg(g.clIndex).arg(g.name).arg(g.memoryMB)
-        .arg(g.integrated ? T("集成显卡") : T("独立显卡"));
+    // 集成显卡报告的是和系统共用的内存，不是专用显存
+    if (g.integrated) return T("%1: %2（集成显卡，与系统共用内存）").arg(g.clIndex).arg(g.name);
+    return T("%1: %2（%3 MB 显存，独立显卡）").arg(g.clIndex).arg(g.name).arg(g.memoryMB);
 }

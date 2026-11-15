@@ -40,8 +40,8 @@ QString KataGoEngine::writeConfig(const AppSettings &s, bool forBenchmark) const
     // benchmark 按对弈（GTP）配置读取参数，必须有 numSearchThreads；实际测试的线程数由 -t 覆盖
     if (forBenchmark) o << "numSearchThreads = " << threads << "\n";
     // 必填项：一次送进显卡的最大局面数。两个分析线程各自的搜索线程加起来正好填满一批。
-    // 测试硬件时最多同时测 32 个线程，批量要够大
-    o << "nnMaxBatchSize = " << (forBenchmark ? 64 : qMax(8, threads * 2)) << "\n";
+    // benchmark 会按每种线程数自己定批量，写了反而被忽略并提示，所以只给分析用
+    if (!forBenchmark) o << "nnMaxBatchSize = " << qMax(8, threads * 2) << "\n";
     o << "nnCacheSizePowerOfTwo = 21\n";
     o << "nnMutexPoolSizePowerOfTwo = 17\n";
     o << "wideRootNoise = 0.04\n";
@@ -285,7 +285,7 @@ void KataGoEngine::parseProgress(const QString &line)
     static const QRegularExpression stepRe(QStringLiteral("^Tuning\\s+(\\d+)\\s*/\\s*(\\d+)"));
     static const QRegularExpression phaseRe(QStringLiteral("^Tuning\\s+[A-Za-z]"));
     static const QRegularExpression benchRe(QStringLiteral("numSearchThreads\\s*=\\s*(\\d+)\\s*:.*visits/s"));
-    constexpr int kExpectedPhases = 6; // 大致项目数，只用来估算；实际更多时自动放宽
+    constexpr int kExpectedPhases = 11; // 大致项目数，只用来估算；实际更多时自动放宽
     if (line.contains("Performing autotuning")) {
         m_tunePhases = 0;
         emit prepareProgress(0, T("第 1 步：为这块显卡调优（只做一次）"));

@@ -50,6 +50,8 @@ jobs:
           Copy-Item packaging/README_使用说明.txt $dist
           Invoke-WebRequest "https://www.gnu.org/licenses/lgpl-3.0.txt" -OutFile "$dist/licenses/Qt-LGPL-3.0.txt"
           Invoke-WebRequest "https://www.gnu.org/licenses/gpl-3.0.txt" -OutFile "$dist/licenses/GPL-3.0.txt"
+          # KataGo 不打包，但注明并附上它的许可证，方便用户了解
+          Invoke-WebRequest "https://raw.githubusercontent.com/lightvector/KataGo/v1.18.1/LICENSE" -OutFile "$dist/licenses/KataGo-LICENSE.txt"
           # 打包结果自检：不能带 KataGo
           if (Test-Path "$dist/katago") { throw "package must not contain katago/" }
           "models are downloaded automatically on first run. 模型会在第一次打开时自动下载。" | Out-File "$dist/models/README.txt" -Encoding utf8
