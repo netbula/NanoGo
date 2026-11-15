@@ -32,6 +32,9 @@ set(SOURCES
 
 qt_add_executable(NanoGo ${SOURCES})
 target_link_libraries(NanoGo PRIVATE Qt6::Widgets Qt6::Network)
+# 按钮图示：Lucide 图标（ISC 许可证）预先渲染成 PNG，编进程序
+file(GLOB NANOGO_ICON_PNGS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} res/icons/*.png)
+qt_add_resources(NanoGo "icons" PREFIX "/" BASE res FILES ${NANOGO_ICON_PNGS})
 set_target_properties(NanoGo PROPERTIES WIN32_EXECUTABLE ON)
 if(WIN32)
     target_link_libraries(NanoGo PRIVATE dxgi)

@@ -3,14 +3,10 @@
 #include <QPainterPath>
 #include <QPixmap>
 #include <QRadialGradient>
+#include <QLinearGradient>
 #include <functional>
 
 namespace {
-const QColor kInk(0x33, 0x3a, 0x45);      // 线条色，深浅背景上都清楚
-const QColor kAccent(0x2b, 0x7a, 0xd6);   // 蓝色强调
-const QColor kGreen(0x3c, 0xb3, 0x71);
-const QColor kWood(0xe3, 0xb4, 0x5c);
-
 QIcon make(const std::function<void(QPainter &)> &draw)
 {
     QIcon icon;
@@ -33,36 +29,10 @@ void stone(QPainter &p, QPointF c, double r, bool black)
     if (black) { g.setColorAt(0, QColor(0x66, 0x66, 0x66)); g.setColorAt(1, QColor(0x10, 0x10, 0x10)); }
     else { g.setColorAt(0, Qt::white); g.setColorAt(1, QColor(0xc8, 0xc8, 0xc8)); }
     p.setBrush(g);
-    p.setPen(QPen(black ? QColor(0x10, 0x10, 0x10) : QColor(0x80, 0x80, 0x80), 1.5));
+    p.setPen(QPen(black ? QColor(0x10, 0x10, 0x10) : QColor(0x9a, 0x9a, 0x9a), 0.8));
     p.drawEllipse(c, r, r);
 }
 
-QPen ink(double w = 5) { return QPen(kInk, w, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin); }
-
-void triangle(QPainter &p, double x, double dir) // dir = +1 向右，-1 向左
-{
-    QPainterPath path;
-    path.moveTo(x, 14);
-    path.lineTo(x + dir * 20, 32);
-    path.lineTo(x, 50);
-    path.closeSubpath();
-    p.setPen(Qt::NoPen);
-    p.setBrush(kInk);
-    p.drawPath(path);
-}
-
-void miniBoard(QPainter &p, QRectF r, int lines)
-{
-    p.setPen(Qt::NoPen);
-    p.setBrush(kWood);
-    p.drawRoundedRect(r, 5, 5);
-    p.setPen(QPen(QColor(0x5a, 0x40, 0x10), 1.6));
-    const double m = r.width() / (lines + 1);
-    for (int i = 1; i <= lines; ++i) {
-        p.drawLine(QPointF(r.left() + m, r.top() + i * m), QPointF(r.right() - m, r.top() + i * m));
-        p.drawLine(QPointF(r.left() + i * m, r.top() + m), QPointF(r.left() + i * m, r.bottom() - m));
-    }
-}
 } // namespace
 
 namespace Icons {
@@ -70,162 +40,46 @@ namespace Icons {
 QIcon app()
 {
     return make([](QPainter &p) {
-        miniBoard(p, QRectF(3, 3, 58, 58), 5);
-        const double m = 58.0 / 6;
-        stone(p, QPointF(3 + 2 * m, 3 + 2 * m), 8.5, true);
-        stone(p, QPointF(3 + 4 * m, 3 + 3 * m), 8.5, false);
-        stone(p, QPointF(3 + 3 * m, 3 + 4 * m), 8.5, true);
-    });
-}
-
-QIcon aiGame()
-{
-    return make([](QPainter &p) {
-        stone(p, QPointF(22, 36), 16, true);
-        stone(p, QPointF(42, 28), 16, false);
-        // 小芯片表示 AI
-        p.setPen(QPen(kAccent, 3));
-        p.setBrush(Qt::white);
-        p.drawRoundedRect(QRectF(34, 40, 24, 18), 3, 3);
-        p.setPen(kAccent);
-        QFont f; f.setPixelSize(12); f.setBold(true);
-        p.setFont(f);
-        p.drawText(QRectF(34, 40, 24, 18), Qt::AlignCenter, "AI");
-    });
-}
-
-QIcon first()
-{
-    return make([](QPainter &p) {
-        p.setPen(ink(6));
-        p.drawLine(QPointF(12, 14), QPointF(12, 50));
-        triangle(p, 36, -1);
-        triangle(p, 54, -1);
-    });
-}
-
-QIcon back() { return make([](QPainter &p) { triangle(p, 42, -1); }); }
-QIcon forward() { return make([](QPainter &p) { triangle(p, 22, 1); }); }
-
-QIcon last()
-{
-    return make([](QPainter &p) {
-        triangle(p, 10, 1);
-        triangle(p, 28, 1);
-        p.setPen(ink(6));
-        p.drawLine(QPointF(52, 14), QPointF(52, 50));
-    });
-}
-
-QIcon pass()
-{
-    return make([](QPainter &p) {
-        // 一只手掌：表示“这一手不下”
-        p.setPen(ink(4));
-        p.setBrush(QColor(0xf3, 0xd9, 0xb1));
-        QPainterPath hand;
-        hand.addRoundedRect(QRectF(16, 28, 32, 28), 10, 10);
-        for (int i = 0; i < 4; ++i) hand.addRoundedRect(QRectF(16 + i * 8, 8 + (i == 0 || i == 3 ? 6 : 0), 8, 28), 4, 4);
-        p.drawPath(hand.simplified());
-    });
-}
-
-QIcon aiMove()
-{
-    return make([](QPainter &p) {
-        stone(p, QPointF(26, 38), 17, true);
-        // 闪电：让 AI 马上走
-        QPainterPath bolt;
-        bolt.moveTo(44, 4); bolt.lineTo(34, 26); bolt.lineTo(44, 26);
-        bolt.lineTo(38, 46); bolt.lineTo(58, 20); bolt.lineTo(47, 20); bolt.lineTo(54, 4);
-        bolt.closeSubpath();
-        p.setPen(QPen(QColor(0xb0, 0x70, 0x00), 2));
-        p.setBrush(QColor(0xff, 0xc4, 0x2e));
-        p.drawPath(bolt);
-    });
-}
-
-QIcon swap()
-{
-    return make([](QPainter &p) {
-        stone(p, QPointF(18, 32), 12, true);
-        stone(p, QPointF(46, 32), 12, false);
-        p.setPen(QPen(kAccent, 4, Qt::SolidLine, Qt::RoundCap));
-        p.setBrush(Qt::NoBrush);
-        p.drawArc(QRectF(14, 6, 36, 24), 30 * 16, 120 * 16);
-        p.drawArc(QRectF(14, 34, 36, 24), 210 * 16, 120 * 16);
-        p.setBrush(kAccent);
+        // 圆角方块 + 木纹渐变棋盘 + 一黑一白两颗大棋子
+        QLinearGradient wood(0, 0, 64, 64);
+        wood.setColorAt(0, QColor(0xf2, 0xc9, 0x7d));
+        wood.setColorAt(1, QColor(0xd4, 0x98, 0x3e));
         p.setPen(Qt::NoPen);
-        p.drawPolygon(QPolygonF({QPointF(47, 4), QPointF(52, 16), QPointF(41, 14)}));
-        p.drawPolygon(QPolygonF({QPointF(17, 60), QPointF(12, 48), QPointF(23, 50)}));
+        p.setBrush(QColor(0, 0, 0, 40));
+        p.drawRoundedRect(QRectF(3, 5, 58, 58), 13, 13); // 阴影
+        p.setBrush(wood);
+        p.drawRoundedRect(QRectF(3, 2, 58, 58), 13, 13);
+        p.setPen(QPen(QColor(0x7a, 0x52, 0x1a, 150), 1.4));
+        for (int i = 1; i <= 3; ++i) {
+            const double v = 3 + i * 58.0 / 4;
+            p.drawLine(QPointF(9, v - 1), QPointF(55, v - 1));
+            p.drawLine(QPointF(v, 8), QPointF(v, 54));
+        }
+        stone(p, QPointF(25.5, 37), 15, true);
+        stone(p, QPointF(40, 23.5), 14, false);
     });
 }
 
-QIcon analyze()
+// 工具栏图示来自 Lucide 图标库（https://lucide.dev ，ISC 许可证），预先按颜色渲染成 PNG 放在 res/icons
+static QIcon fromRes(const char *name)
 {
-    return make([](QPainter &p) {
-        // 胜率曲线 + 放大镜
-        p.setPen(QPen(kAccent, 4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        p.drawPolyline(QPolygonF({QPointF(6, 44), QPointF(16, 30), QPointF(26, 36), QPointF(38, 16)}));
-        p.setPen(ink(5));
-        p.setBrush(QColor(255, 255, 255, 160));
-        p.drawEllipse(QPointF(38, 34), 13, 13);
-        p.drawLine(QPointF(47, 44), QPointF(58, 56));
-    });
+    QIcon icon;
+    for (int px : {32, 64}) icon.addFile(QStringLiteral(":/icons/%1_%2.png").arg(QLatin1String(name)).arg(px), QSize(px, px));
+    return icon;
 }
 
-QIcon candidates()
-{
-    return make([](QPainter &p) {
-        miniBoard(p, QRectF(4, 4, 56, 56), 3);
-        p.setPen(QPen(QColor(0x1d, 0x6b, 0x3f), 1.5));
-        p.setBrush(kGreen);
-        p.drawEllipse(QPointF(18, 18), 8, 8);
-        p.drawEllipse(QPointF(46, 32), 8, 8);
-        p.setBrush(kAccent);
-        p.setPen(QPen(QColor(0x1a, 0x4d, 0x8c), 1.5));
-        p.drawEllipse(QPointF(32, 46), 8, 8);
-    });
-}
-
-QIcon territory()
-{
-    return make([](QPainter &p) {
-        miniBoard(p, QRectF(4, 4, 56, 56), 3);
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0, 0, 0, 150));
-        p.drawRect(QRectF(8, 8, 22, 48));
-        p.setBrush(QColor(255, 255, 255, 190));
-        p.drawRect(QRectF(34, 8, 22, 48));
-    });
-}
-
-QIcon reference()
-{
-    return make([](QPainter &p) {
-        stone(p, QPointF(20, 22), 14, true);
-        stone(p, QPointF(44, 42), 14, false);
-        QFont f; f.setPixelSize(16); f.setBold(true);
-        p.setFont(f);
-        p.setPen(Qt::white);
-        p.drawText(QRectF(6, 8, 28, 28), Qt::AlignCenter, "1");
-        p.setPen(Qt::black);
-        p.drawText(QRectF(30, 28, 28, 28), Qt::AlignCenter, "2");
-    });
-}
-
-QIcon count()
-{
-    return make([](QPainter &p) {
-        // 计数板 + 对勾：点目、结束对局
-        p.setPen(ink(4));
-        p.setBrush(Qt::white);
-        p.drawRoundedRect(QRectF(8, 6, 40, 52), 5, 5);
-        p.setPen(ink(3));
-        for (int i = 0; i < 4; ++i) p.drawLine(QPointF(15, 18 + i * 9), QPointF(41, 18 + i * 9));
-        p.setPen(QPen(kGreen, 6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        p.drawPolyline(QPolygonF({QPointF(34, 44), QPointF(42, 52), QPointF(58, 32)}));
-    });
-}
+QIcon aiGame() { return fromRes("aiGame"); }
+QIcon first() { return fromRes("first"); }
+QIcon back() { return fromRes("back"); }
+QIcon forward() { return fromRes("forward"); }
+QIcon last() { return fromRes("last"); }
+QIcon pass() { return fromRes("pass"); }
+QIcon aiMove() { return fromRes("aiMove"); }
+QIcon swap() { return fromRes("swap"); }
+QIcon analyze() { return fromRes("analyze"); }
+QIcon candidates() { return fromRes("candidates"); }
+QIcon territory() { return fromRes("territory"); }
+QIcon reference() { return fromRes("reference"); }
+QIcon count() { return fromRes("count"); }
 
 } // namespace Icons

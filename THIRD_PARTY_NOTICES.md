@@ -17,5 +17,5 @@ NanoGo automatically switches to the CPU build of KataGo.
 Go is a game with no single owner; the board, stones and rules are not anyone's trademark. NanoGo is not affiliated with
 KataGo, katagotraining.org or the Qt Company.
 
-NanoGo 的程序图标和工具栏图示都由 NanoGo 自己用代码绘制（`src/Icons.cpp`），随 NanoGo 一起按 MIT 许可证发布，没有使用第三方图标。
-The application icon and toolbar icons are drawn in code by NanoGo itself (`src/Icons.cpp`) and are MIT licensed with NanoGo; no third-party icon sets are used.
+程序图标由 NanoGo 自己用代码绘制（`src/Icons.cpp`，MIT）。工具栏图示来自 [Lucide](https://lucide.dev) 图标库（ISC 许可证，许可证原文见 `res/icons/LICENSE-lucide.txt`），只改了颜色和线宽。
+The application icon is drawn in code by NanoGo (`src/Icons.cpp`, MIT). Toolbar icons are from [Lucide](https://lucide.dev) (ISC License, see `res/icons/LICENSE-lucide.txt`), recolored.
