@@ -125,6 +125,7 @@ void KataGoEngine::runBenchmark()
     emit logLine(T("—— 自动测试硬件：线程数 %1 ——").arg(threads));
     m_benchTotal = threads.count(',') + 1;
     m_benchDone = 0;
+    m_benchSeen.clear();
     emit prepareProgress(0, T("正在加载模型，准备测试本机硬件…"));
     m_proc->start(m_settings.katagoPath, {"benchmark", "-model", m_settings.modelPath, "-config", cfg, "-v", "250", "-t", threads});
 }
@@ -283,7 +284,7 @@ void KataGoEngine::parseProgress(const QString &line)
 {
     static const QRegularExpression stepRe(QStringLiteral("^Tuning\\s+(\\d+)\\s*/\\s*(\\d+)"));
     static const QRegularExpression phaseRe(QStringLiteral("^Tuning\\s+[A-Za-z]"));
-    static const QRegularExpression benchRe(QStringLiteral("numSearchThreads\\s*=\\s*\\d+\\s*:.*visits/s"));
+    static const QRegularExpression benchRe(QStringLiteral("numSearchThreads\\s*=\\s*(\\d+)\\s*:.*visits/s"));
     constexpr int kExpectedPhases = 6; // 大致项目数，只用来估算；实际更多时自动放宽
     if (line.contains("Performing autotuning")) {
         m_tunePhases = 0;
@@ -307,8 +308,11 @@ void KataGoEngine::parseProgress(const QString &line)
         emit prepareProgress(100, T("显卡调优完成"));
         return;
     }
-    if (m_benchmarking && benchRe.match(line).hasMatch() && m_benchTotal > 0) {
-        ++m_benchDone;
+    // KataGo 测完后会把每种线程数的结果再汇总打印一遍，所以按“测过的不同线程数”计数
+    const auto bm = benchRe.match(line);
+    if (m_benchmarking && bm.hasMatch() && m_benchTotal > 0) {
+        m_benchSeen.insert(bm.captured(1).toInt());
+        m_benchDone = qMin(m_benchTotal, int(m_benchSeen.size()));
         emit prepareProgress(qMin(100, m_benchDone * 100 / m_benchTotal),
                              T("第 2 步：测试最合适的线程数（%1 / %2）").arg(m_benchDone).arg(m_benchTotal));
     }
