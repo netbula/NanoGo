@@ -1,6 +1,7 @@
 #include "I18n.h"
 #include "MainWindow.h"
 #include "EngineInstaller.h"
+#include "Icons.h"
 #include "ModelChooser.h"
 #include "BoardWidget.h"
 #include "HardwareInfo.h"
@@ -296,6 +297,7 @@ void MainWindow::buildUi()
     auto *al = new QVBoxLayout(anaBox);
     m_analysisInfo = new QLabel(T("按空格键开始分析"), anaBox);
     m_analysisInfo->setTextFormat(Qt::RichText);
+    m_analysisInfo->setWordWrap(true);
     QFont big = m_analysisInfo->font(); big.setPointSize(big.pointSize() + 2);
     m_analysisInfo->setFont(big);
     al->addWidget(m_analysisInfo);
@@ -357,7 +359,7 @@ void MainWindow::buildUi()
     // 菜单
     QMenu *file = menuBar()->addMenu(T("文件(&F)"));
     file->addAction(T("新对局（摆谱 / 分析）"), QKeySequence::New, this, &MainWindow::newGame);
-    file->addAction(T("人机对弈…"), QKeySequence(Qt::CTRL | Qt::Key_G), this, &MainWindow::newAiGame);
+    file->addAction(Icons::aiGame(), T("人机对弈…"), QKeySequence(Qt::CTRL | Qt::Key_G), this, &MainWindow::newAiGame);
     file->addAction(T("打开棋谱…"), QKeySequence::Open, this, &MainWindow::openSgf);
     file->addAction(T("保存棋谱…"), QKeySequence::Save, this, &MainWindow::saveSgf);
     file->addSeparator();
@@ -480,9 +482,36 @@ void MainWindow::buildUi()
         QDesktopServices::openUrl(QUrl::fromLocalFile(AppSettings::dataDir()));
     });
 
+    // 按钮图示（全部自己画的，见 Icons.cpp）
+    startA->setIcon(Icons::first());
+    backA->setIcon(Icons::back());
+    fwdA->setIcon(Icons::forward());
+    endA->setIcon(Icons::last());
+    passA->setIcon(Icons::pass());
+    aiGoA->setIcon(Icons::aiMove());
+    swapA->setIcon(Icons::swap());
+    m_analyzeAct->setIcon(Icons::analyze());
+    m_candAct->setIcon(Icons::candidates());
+    m_ownAct->setIcon(Icons::territory());
+    refA->setIcon(Icons::reference());
+    countA->setIcon(Icons::count());
+    // 工具栏上用短名字，菜单里保留完整名字
+    const QList<QPair<QAction *, const char *>> shortNames = {
+        {startA, "开头"}, {backA, "后退"}, {fwdA, "前进"}, {endA, "最后"}, {passA, "停一手"},
+        {aiGoA, "AI 走一步"}, {swapA, "交换黑白"}, {m_analyzeAct, "分析"}, {m_candAct, "候选点"},
+        {m_ownAct, "形势"}, {refA, "参考图"}, {countA, "点目"}};
+    for (const auto &sn : shortNames) {
+        sn.first->setIconText(T(sn.second));
+        if (!sn.first->shortcut().isEmpty())
+            sn.first->setToolTip(sn.first->text().remove('&') + " (" + sn.first->shortcut().toString(QKeySequence::NativeText) + ")");
+    }
+
     QToolBar *tb = addToolBar(T("工具栏"));
     tb->setMovable(false);
-    tb->addAction(T("人机对弈"), this, &MainWindow::newAiGame);
+    tb->setIconSize(QSize(28, 28));
+    tb->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    QAction *aiGameA = tb->addAction(Icons::aiGame(), T("人机对弈"), this, &MainWindow::newAiGame);
+    aiGameA->setToolTip(T("人机对弈") + " (Ctrl+G)");
     tb->addSeparator();
     tb->addAction(startA);
     tb->addAction(backA);
@@ -1013,7 +1042,7 @@ void MainWindow::refreshInfo()
         turn += "<br>";
     } else {
         // 没有在和 AI 下：双方都由你摆，提示怎样开始对弈
-        turn = T("<span style='color:#888'>摆棋/复盘模式：黑白都由你下。想和 AI 下，点“人机对弈”或“交换黑白”。</span><br>");
+        turn = T("<span style='color:#888;font-size:small'>摆棋/复盘模式：黑白都由你下。想和 AI 下，点“人机对弈”或“交换黑白”。</span><br>");
     }
     const Analysis &a = cur->analysis;
     if (!a.valid) {

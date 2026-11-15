@@ -25,6 +25,7 @@ set(SOURCES
     src/ModelUpdater.h src/ModelUpdater.cpp
     src/EngineInstaller.h src/EngineInstaller.cpp
     src/ModelChooser.h src/ModelChooser.cpp
+    src/Icons.h src/Icons.cpp
     src/I18n.h src/I18n.cpp
     src/HardwareInfo.h src/HardwareInfo.cpp
 )

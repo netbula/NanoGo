@@ -1,6 +1,7 @@
 #include "AppSettings.h"
 #include "I18n.h"
 #include "MainWindow.h"
+#include "Icons.h"
 #include <QApplication>
 #include <QDir>
 #include <QLibraryInfo>
@@ -10,8 +11,16 @@
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    app.setWindowIcon(Icons::app()); // 窗口标题栏、任务栏图标
     QApplication::setApplicationName("NanoGo");
     QApplication::setStyle("Fusion");
+    // 开发用：NANOGO_EXPORT_ICON=文件夹，导出程序图标的 PNG（用来生成 res/nanogo.ico）后退出
+    const QString iconDir = qEnvironmentVariable("NANOGO_EXPORT_ICON");
+    if (!iconDir.isEmpty()) {
+        for (int size : {16, 24, 32, 48, 64, 128, 256})
+            Icons::app().pixmap(size, size).save(QDir(iconDir).filePath(QStringLiteral("icon_%1.png").arg(size)));
+        return 0;
+    }
 
     // 界面语言：设置里选的，或者跟随系统
     AppSettings s;
