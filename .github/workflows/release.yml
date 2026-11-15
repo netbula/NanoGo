@@ -30,8 +30,8 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-          cmake --build build --config Release
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
 
       - name: Assemble package
         shell: pwsh
@@ -39,9 +39,10 @@ jobs:
           $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "dev-$($env:GITHUB_SHA.Substring(0,7))" }
           $dist = "dist/NanoGo"
           New-Item -ItemType Directory -Force $dist, "$dist/katago", "$dist/models", "$dist/licenses" | Out-Null
-          Copy-Item -Recurse build/Release/* $dist
+          Copy-Item build/NanoGo.exe $dist
+          windeployqt --release --no-compiler-runtime "$dist/NanoGo.exe"
           # 微软 VC 运行库（可再分发）放在程序旁边，用户不用另外安装
-          Copy-Item "$env:VCToolsRedistDir\x64\Microsoft.VC143.CRT\*.dll" $dist
+          Get-ChildItem "$env:VCToolsRedistDir\x64\Microsoft.VC*.CRT\*.dll" | Copy-Item -Destination $dist
           # 官方 KataGo：OpenCL 版（显卡）+ 两个 CPU 版（AVX2 / 通用）
           $kg = $env:KATAGO_VERSION
           foreach ($pair in @(@('opencl','opencl'), @('cpu-avx2','eigenavx2'), @('cpu','eigen'))) {
