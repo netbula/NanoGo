@@ -1,3 +1,4 @@
+#include "I18n.h"
 #include "ModelUpdater.h"
 #include "AppSettings.h"
 #include <QCryptographicHash>
@@ -35,7 +36,7 @@ void ModelUpdater::fetchPage(const QString &url)
         m_reply = nullptr;
         r->deleteLater();
         if (r->error() != QNetworkReply::NoError) {
-            emit failed(QStringLiteral("无法连接 KataGo 官方训练站：%1").arg(r->errorString()));
+            emit failed(T("无法连接 KataGo 官方训练站：%1").arg(r->errorString()));
             return;
         }
         const QJsonDocument doc = QJsonDocument::fromJson(r->readAll());
@@ -97,7 +98,7 @@ void ModelUpdater::download(const NetworkInfo &n)
     }
     m_file = new QFile(finalPath + ".part", this);
     if (!m_file->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        emit failed(QStringLiteral("无法写入 %1").arg(m_file->fileName()));
+        emit failed(T("无法写入 %1").arg(m_file->fileName()));
         delete m_file; m_file = nullptr;
         return;
     }
@@ -122,17 +123,17 @@ void ModelUpdater::download(const NetworkInfo &n)
         delete m_file; m_file = nullptr;
         if (r->error() != QNetworkReply::NoError) {
             QFile::remove(part);
-            emit failed(QStringLiteral("模型下载失败：%1").arg(r->errorString()));
+            emit failed(T("模型下载失败：%1").arg(r->errorString()));
             return;
         }
         if (!m_target.sha256.isEmpty() && hash.compare(m_target.sha256, Qt::CaseInsensitive) != 0) {
             QFile::remove(part);
-            emit failed(QStringLiteral("下载的模型校验不通过（文件不完整或被修改），已删除，请稍后重试。"));
+            emit failed(T("下载的模型校验不通过（文件不完整或被修改），已删除，请稍后重试。"));
             return;
         }
         QFile::remove(finalPath);
         if (!QFile::rename(part, finalPath)) {
-            emit failed(QStringLiteral("无法保存模型到 %1").arg(finalPath));
+            emit failed(T("无法保存模型到 %1").arg(finalPath));
             return;
         }
         emit downloadFinished(finalPath);

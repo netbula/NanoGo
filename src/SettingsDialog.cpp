@@ -1,3 +1,4 @@
+#include "I18n.h"
 #include "SettingsDialog.h"
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -17,7 +18,7 @@ static QWidget *withBrowse(QLineEdit *edit, const QString &title, const QString 
     auto *h = new QHBoxLayout(w);
     h->setContentsMargins(0, 0, 0, 0);
     h->addWidget(edit, 1);
-    auto *btn = new QPushButton(QStringLiteral("浏览…"), w);
+    auto *btn = new QPushButton(T("浏览…"), w);
     h->addWidget(btn);
     QObject::connect(btn, &QPushButton::clicked, w, [=] {
         QString start = edit->text().isEmpty() ? QString() : QFileInfo(edit->text()).absolutePath();
@@ -30,56 +31,82 @@ static QWidget *withBrowse(QLineEdit *edit, const QString &title, const QString 
 SettingsDialog::SettingsDialog(const AppSettings &s, const QStringList &devices, QWidget *parent)
     : QDialog(parent), m_s(s)
 {
-    setWindowTitle(QStringLiteral("设置"));
+    setWindowTitle(T("设置"));
     setMinimumWidth(620);
     auto *form = new QFormLayout(this);
 
     m_katago = new QLineEdit(s.katagoPath, this);
-    form->addRow(QStringLiteral("KataGo 程序："), withBrowse(m_katago, QStringLiteral("选择 KataGo 程序"), "KataGo (*.exe);;所有文件 (*)", this));
-    auto *tip = new QLabel(QStringLiteral("建议用 OpenCL 版（文件名含 opencl），你的 5060 Ti 已测试可用。"), this);
+    form->addRow(T("KataGo 程序："), withBrowse(m_katago, T("选择 KataGo 程序"), T("KataGo (*.exe);;所有文件 (*)"), this));
+    auto *tip = new QLabel(T("有独立显卡建议用 OpenCL 版（文件名含 opencl）；没有独立显卡用 CPU 版（文件名含 eigen）。"), this);
     tip->setStyleSheet("color: gray;");
     form->addRow(QString(), tip);
 
     m_model = new QLineEdit(s.modelPath, this);
-    form->addRow(QStringLiteral("模型文件："), withBrowse(m_model, QStringLiteral("选择模型"), QStringLiteral("KataGo 模型 (*.bin.gz *.txt.gz)"), this));
+    form->addRow(T("模型文件："), withBrowse(m_model, T("选择模型"), T("KataGo 模型 (*.bin.gz *.txt.gz)"), this));
 
     m_gpu = new QComboBox(this);
-    m_gpu->addItem(QStringLiteral("自动（推荐）"), -1);
+    m_gpu->addItem(T("自动（推荐）"), -1);
     for (const QString &d : devices) m_gpu->addItem(d, d.section(':', 0, 0).toInt());
-    if (devices.isEmpty()) for (int i = 0; i < 3; ++i) m_gpu->addItem(QStringLiteral("%1 号显卡").arg(i), i);
+    if (devices.isEmpty()) for (int i = 0; i < 3; ++i) m_gpu->addItem(T("%1 号显卡").arg(i), i);
     int idx = m_gpu->findData(s.gpuDevice);
     m_gpu->setCurrentIndex(idx >= 0 ? idx : 0);
-    form->addRow(QStringLiteral("显卡："), m_gpu);
+    form->addRow(T("显卡："), m_gpu);
 
     m_threads = new QSpinBox(this);
-    m_threads->setRange(1, 128);
+    m_threads->setRange(0, 128);
+    m_threads->setSpecialValueText(s.tunedThreads > 0 && s.tunedFor == s.tuneKey()
+                                       ? T("自动（本机测试结果：%1）").arg(s.tunedThreads)
+                                       : T("自动（首次启动时测试）"));
     m_threads->setValue(s.searchThreads);
-    form->addRow(QStringLiteral("搜索线程数："), m_threads);
+    auto *retune = new QPushButton(T("重新测试硬件"), this);
+    connect(retune, &QPushButton::clicked, this, [this, retune] {
+        m_s.tunedThreads = 0;
+        m_s.tunedFor.clear();
+        m_threads->setValue(0);
+        m_threads->setSpecialValueText(T("自动（确定后重新测试）"));
+        retune->setEnabled(false);
+    });
+    auto *tw = new QWidget(this);
+    auto *th = new QHBoxLayout(tw);
+    th->setContentsMargins(0, 0, 0, 0);
+    th->addWidget(m_threads, 1);
+    th->addWidget(retune);
+    form->addRow(T("搜索线程数："), tw);
 
     m_visits = new QSpinBox(this);
     m_visits->setRange(10, 1000000);
     m_visits->setSingleStep(100);
     m_visits->setValue(s.maxVisits);
-    form->addRow(QStringLiteral("每步最大计算量："), m_visits);
+    form->addRow(T("每步最大计算量："), m_visits);
 
     m_komi = new QDoubleSpinBox(this);
     m_komi->setRange(-50, 50);
     m_komi->setSingleStep(0.5);
     m_komi->setValue(s.komi);
-    form->addRow(QStringLiteral("贴目（新对局）："), m_komi);
+    form->addRow(T("贴目（新对局）："), m_komi);
 
     m_rules = new QComboBox(this);
-    m_rules->addItem(QStringLiteral("中国规则"), "chinese");
-    m_rules->addItem(QStringLiteral("日本规则"), "japanese");
-    m_rules->addItem(QStringLiteral("韩国规则"), "korean");
-    m_rules->addItem(QStringLiteral("AGA 规则"), "aga");
+    m_rules->addItem(T("中国规则"), "chinese");
+    m_rules->addItem(T("日本规则"), "japanese");
+    m_rules->addItem(T("韩国规则"), "korean");
+    m_rules->addItem(T("AGA 规则"), "aga");
     m_rules->addItem(QStringLiteral("Tromp-Taylor"), "tromp-taylor");
     m_rules->setCurrentIndex(qMax(0, m_rules->findData(s.rules)));
-    form->addRow(QStringLiteral("规则（新对局）："), m_rules);
+    form->addRow(T("规则（新对局）："), m_rules);
+
+    // 语言名称用各自的文字显示，任何语言下都看得懂
+    m_lang = new QComboBox(this);
+    m_lang->addItem(T("自动 / Auto"), "auto");
+    m_lang->addItem(QString::fromUtf8("中文"), "zh");
+    m_lang->addItem("English", "en");
+    m_lang->addItem(QString::fromUtf8("日本語"), "ja");
+    m_lang->addItem(QString::fromUtf8("한국어"), "ko");
+    m_lang->setCurrentIndex(qMax(0, m_lang->findData(s.language)));
+    form->addRow(T("界面语言："), m_lang);
 
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    bb->button(QDialogButtonBox::Ok)->setText(QStringLiteral("确定"));
-    bb->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    bb->button(QDialogButtonBox::Ok)->setText(T("确定"));
+    bb->button(QDialogButtonBox::Cancel)->setText(T("取消"));
     connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
     form->addRow(bb);
@@ -95,5 +122,6 @@ AppSettings SettingsDialog::result() const
     s.maxVisits = m_visits->value();
     s.komi = m_komi->value();
     s.rules = m_rules->currentData().toString();
+    s.language = m_lang->currentData().toString();
     return s;
 }

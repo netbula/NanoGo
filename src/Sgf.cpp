@@ -1,3 +1,4 @@
+#include "I18n.h"
 #include "Sgf.h"
 #include <QStringDecoder>
 #include <QRegularExpression>
@@ -57,7 +58,7 @@ struct Parser {
                     if (s[pos] == '\\' && pos + 1 < s.size()) ++pos;
                     v += s[pos++];
                 }
-                if (pos >= s.size()) { error = QStringLiteral("SGF 文件不完整：缺少 ]"); return false; }
+                if (pos >= s.size()) { error = T("SGF 文件不完整：缺少 ]"); return false; }
                 ++pos;
                 vals.append(v);
                 skipWs();
@@ -65,7 +66,7 @@ struct Parser {
             if (vals.isEmpty()) continue;
             if (isRoot && ident == "SZ") {
                 size = vals[0].section(':', 0, 0).toInt();
-                if (size < 2 || size > 25) { error = QStringLiteral("不支持的棋盘大小：%1").arg(vals[0]); return false; }
+                if (size < 2 || size > 25) { error = T("不支持的棋盘大小：%1").arg(vals[0]); return false; }
             } else if (isRoot && ident == "KM") tree.setKomi(vals[0].toDouble());
             else if (isRoot && ident == "PB") tree.playerBlack = vals[0];
             else if (isRoot && ident == "PW") tree.playerWhite = vals[0];
@@ -94,12 +95,12 @@ struct Parser {
     bool readSequence(GameNode *parent, GameTree &tree, GameNode **rootOut)
     {
         skipWs();
-        if (pos >= s.size() || s[pos] != '(') { error = QStringLiteral("SGF 格式错误：缺少 ("); return false; }
+        if (pos >= s.size() || s[pos] != '(') { error = T("SGF 格式错误：缺少 ("); return false; }
         ++pos;
         GameNode *cur = parent;
         while (true) {
             skipWs();
-            if (pos >= s.size()) { error = QStringLiteral("SGF 文件不完整：缺少 )"); return false; }
+            if (pos >= s.size()) { error = T("SGF 文件不完整：缺少 )"); return false; }
             QChar c = s[pos];
             if (c == ';') {
                 ++pos;
@@ -109,7 +110,7 @@ struct Parser {
                 if (!readNode(n, tree, cur == nullptr)) return false;
                 cur = n;
             } else if (c == '(') {
-                if (!cur) { error = QStringLiteral("SGF 格式错误"); return false; }
+                if (!cur) { error = T("SGF 格式错误"); return false; }
                 if (!readSequence(cur, tree, rootOut)) return false;
             } else if (c == ')') {
                 ++pos;
@@ -176,7 +177,7 @@ QString Sgf::decode(const QByteArray &bytes)
 bool Sgf::load(const QString &text, GameTree &tree, QString *error)
 {
     int start = text.indexOf('(');
-    if (start < 0) { if (error) *error = QStringLiteral("这不是 SGF 棋谱文件"); return false; }
+    if (start < 0) { if (error) *error = T("这不是 SGF 棋谱文件"); return false; }
     Parser p(text);
     p.pos = start;
     GameNode *root = nullptr;
@@ -189,7 +190,7 @@ bool Sgf::load(const QString &text, GameTree &tree, QString *error)
     if (m.hasMatch()) p.size = m.captured(1).toInt();
     if (!p.readSequence(nullptr, tree, &root) || !root) {
         delete root;
-        if (error) *error = p.error.isEmpty() ? QStringLiteral("无法解析棋谱") : p.error;
+        if (error) *error = p.error.isEmpty() ? T("无法解析棋谱") : p.error;
         return false;
     }
     tree.adoptRoot(root, p.size);

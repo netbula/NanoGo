@@ -23,6 +23,7 @@ set(SOURCES
     src/SettingsDialog.h src/SettingsDialog.cpp
     src/MainWindow.h src/MainWindow.cpp
     src/ModelUpdater.h src/ModelUpdater.cpp
+    src/I18n.h src/I18n.cpp
 )
 
 qt_add_executable(NanoGo ${SOURCES})
@@ -36,7 +37,7 @@ if(WIN32)
     find_program(WINDEPLOYQT windeployqt HINTS "${_qtbin}")
     if(WINDEPLOYQT)
         add_custom_command(TARGET NanoGo POST_BUILD
-            COMMAND "${WINDEPLOYQT}" --no-translations --no-compiler-runtime "$<TARGET_FILE:NanoGo>"
+            COMMAND "${WINDEPLOYQT}" --no-compiler-runtime "$<TARGET_FILE:NanoGo>"
             COMMENT "复制 Qt 运行库")
     endif()
 endif()

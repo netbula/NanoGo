@@ -30,6 +30,7 @@ signals:
     void stateChanged(KataGoEngine::State state, const QString &message);
     void analysisReceived(const QJsonObject &response);
     void logLine(const QString &line);
+    void tuned(int threads);  // 自动测试硬件得出的最佳线程数
 
 private:
     void setState(State s, const QString &msg);
@@ -39,6 +40,11 @@ private:
     void onError(QProcess::ProcessError err);
     QString writeConfig(const AppSettings &s) const;
     QString explainFailure() const;
+    void launchAnalysis();
+    void runBenchmark();
+    void onBenchmarkOutput();
+    void onBenchmarkFinished();
+    QProcess *newProcess();
 
     QProcess *m_proc = nullptr;
     State m_state = State::Stopped;
@@ -48,4 +54,7 @@ private:
     QString m_deviceName;
     int m_nextId = 0;
     bool m_stopping = false;
+    bool m_benchmarking = false;
+    AppSettings m_settings;
+    QStringList m_benchLines;
 };

@@ -1,6 +1,6 @@
 # NanoGo 围棋
 
-一个用 C++ / Qt 6 写的 KataGo 图形界面，中文界面，用来复盘、对弈和做死活题。
+一个用 C++ / Qt 6 写的 KataGo 图形界面，支持中文、English、日本語、한국어 四种界面语言（菜单“设置 > 界面语言”），用来复盘、对弈和做死活题。
 
 ## 当前功能（第二步：程序骨架）
 - 19 路棋盘，落子、提子、打劫判断
@@ -44,6 +44,8 @@ set CMAKE="C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\IDE\Co
 - `data\`：程序生成的 KataGo 配置 `analysis.cfg` 和显卡调优文件
 - 程序不会往“下载”文件夹里写任何东西
 
-## 显卡说明（RTX 5060 Ti）
-- 推荐 KataGo **OpenCL** 版，搜索线程 16（实测 zhizi b40 约 216 次/秒）
-- 这台电脑 OpenCL 0 号是 AMD 集成显卡，1 号才是 5060 Ti。设置里“显卡”选“自动”即可，KataGo 会挑 5060 Ti
+## 硬件自动检测
+- 不针对某一台电脑写死设置。第一次启动（或更换引擎、模型后），NanoGo 会用 KataGo 自带的 benchmark 自动测试，选出这台电脑最合适的搜索线程数，结果记在 `nanogo.ini`。设置里可以“重新测试硬件”，也可以手动指定线程数。
+- 显卡默认“自动”，由 KataGo 自己挑最强的那块（有集成显卡的电脑上，OpenCL 0 号常常是集成显卡）。
+- 引擎按 OpenCL → TensorRT → CUDA → CPU（eigen）的顺序在 `katago` 文件夹里自动寻找；没有独立显卡的电脑放 CPU 版即可。
+- 路径都跟随程序所在位置：从 exe 往上找含 `katago` 或 `models` 文件夹的目录作为根目录，整个文件夹拷到别的电脑也能用。

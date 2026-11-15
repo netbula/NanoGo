@@ -2,6 +2,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QLocale>
 #include <QSettings>
 
 QString AppSettings::appDir() { return QCoreApplication::applicationDirPath(); }
@@ -13,13 +14,31 @@ QString AppSettings::dataDir()
     return d.filePath("data");
 }
 
+QString AppSettings::rootDir()
+{
+    QDir d(appDir());
+    for (int i = 0; i < 4; ++i) {
+        if (d.exists("katago") || d.exists("models")) return d.absolutePath();
+        if (!d.cdUp()) break;
+    }
+    return appDir();
+}
+
 QString AppSettings::modelsDir()
 {
-    // 优先放在 C:\dev\NanoGo\models，换了位置就放在 exe 旁边
-    QDir root("C:/dev/NanoGo");
-    QDir d = root.exists() ? root : QDir(appDir());
+    QDir d(rootDir());
     d.mkpath("models");
     return d.filePath("models");
+}
+
+QString AppSettings::effectiveLanguage() const
+{
+    if (language != "auto") return language;
+    const QString sys = QLocale::system().name(); // 例如 zh_CN, ja_JP
+    if (sys.startsWith("zh")) return "zh";
+    if (sys.startsWith("ja")) return "ja";
+    if (sys.startsWith("ko")) return "ko";
+    return "en";
 }
 
 QString AppSettings::iniPath() { return QDir(appDir()).filePath("nanogo.ini"); }
@@ -30,7 +49,10 @@ void AppSettings::load()
     katagoPath = s.value("engine/katago", katagoPath).toString();
     modelPath = s.value("engine/model", modelPath).toString();
     gpuDevice = s.value("engine/gpuDevice", gpuDevice).toInt();
-    searchThreads = s.value("engine/searchThreads", searchThreads).toInt();
+    searchThreads = s.value("engine/searchThreadsManual", searchThreads).toInt(); // 旧版的 searchThreads=16 不再沿用，改为自动
+    tunedThreads = s.value("engine/tunedThreads", tunedThreads).toInt();
+    tunedFor = s.value("engine/tunedFor", tunedFor).toString();
+    language = s.value("ui/language", language).toString();
     maxVisits = s.value("engine/maxVisits", maxVisits).toInt();
     komi = s.value("game/komi", komi).toDouble();
     rules = s.value("game/rules", rules).toString();
@@ -48,7 +70,10 @@ void AppSettings::save() const
     s.setValue("engine/katago", katagoPath);
     s.setValue("engine/model", modelPath);
     s.setValue("engine/gpuDevice", gpuDevice);
-    s.setValue("engine/searchThreads", searchThreads);
+    s.setValue("engine/searchThreadsManual", searchThreads);
+    s.setValue("engine/tunedThreads", tunedThreads);
+    s.setValue("engine/tunedFor", tunedFor);
+    s.setValue("ui/language", language);
     s.setValue("engine/maxVisits", maxVisits);
     s.setValue("game/komi", komi);
     s.setValue("game/rules", rules);
@@ -69,24 +94,27 @@ static QString newestMatch(const QString &dir, const QStringList &patterns, cons
 void AppSettings::autoDetect()
 {
     const QString home = QDir::homePath();
-    // 只在 NanoGo 自己的文件夹里找 KataGo 引擎，不依赖 KaTrain
-    const QStringList exeDirs = {QDir(appDir()).filePath("katago"), "C:/dev/NanoGo/katago"};
+    const QString root = rootDir();
     if (katagoPath.isEmpty()) {
-        for (const QString &d : exeDirs) {
-            // 优先 OpenCL 版（显卡），不要 +bs50 那种特殊版本
-            QString p = newestMatch(d, {"katago*opencl*.exe"});
-            QDir dir(d);
-            for (const QFileInfo &f : dir.entryInfoList({"katago*opencl*.exe"}, QDir::Files))
-                if (!f.fileName().contains('+')) { p = f.absoluteFilePath(); break; }
-            if (p.isEmpty()) p = newestMatch(d, {"katago*.exe"});
-            if (!p.isEmpty()) { katagoPath = p; break; }
+        // 只在 NanoGo 自己的 katago 文件夹里找引擎，不依赖其他程序
+        const QStringList exeDirs = {QDir(appDir()).filePath("katago"), QDir(root).filePath("katago")};
+        // 显卡版优先，其次 CPU 版；带 + 的是特殊编译版本，跳过
+        const QStringList prefs = {"opencl", "trt", "tensorrt", "cuda", "eigenavx2", "eigen", ""};
+        for (const QString &pref : prefs) {
+            for (const QString &d : exeDirs) {
+                for (const QFileInfo &f : QDir(d).entryInfoList({"katago*.exe", "katago"}, QDir::Files)) {
+                    if (f.fileName().contains('+')) continue;
+                    if (pref.isEmpty() || f.fileName().contains(pref, Qt::CaseInsensitive)) { katagoPath = f.absoluteFilePath(); break; }
+                }
+                if (!katagoPath.isEmpty()) break;
+            }
+            if (!katagoPath.isEmpty()) break;
         }
     }
     if (modelPath.isEmpty()) {
-        const QStringList modelDirs = {QDir(appDir()).filePath("models"), "C:/dev/NanoGo/models",
-                                       home + "/Downloads"};
+        const QStringList modelDirs = {modelsDir(), QDir(appDir()).filePath("models"), home + "/Downloads"};
         for (const QString &d : modelDirs) {
-            QString p = newestMatch(d, {"*.bin.gz"}, "zhizi");
+            QString p = newestMatch(d, {"*.bin.gz"});
             if (!p.isEmpty() && !QFileInfo(p).fileName().contains("human")) { modelPath = p; break; }
         }
     }

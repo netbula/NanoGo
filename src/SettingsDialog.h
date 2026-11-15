@@ -16,7 +16,7 @@ public:
 private:
     AppSettings m_s;
     QLineEdit *m_katago, *m_model;
-    QComboBox *m_gpu, *m_rules;
+    QComboBox *m_gpu, *m_rules, *m_lang;
     QSpinBox *m_threads, *m_visits;
     QDoubleSpinBox *m_komi;
 };

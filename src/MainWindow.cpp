@@ -1,10 +1,13 @@
+#include "I18n.h"
 #include "MainWindow.h"
 #include "BoardWidget.h"
 #include "SettingsDialog.h"
 #include "Sgf.h"
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QPushButton>
+#include <QProcess>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDialog>
@@ -39,6 +42,11 @@ MainWindow::MainWindow(QWidget *parent)
     buildUi();
     connect(m_engine, &KataGoEngine::stateChanged, this, &MainWindow::onEngineState);
     connect(m_engine, &KataGoEngine::analysisReceived, this, &MainWindow::onAnalysis);
+    connect(m_engine, &KataGoEngine::tuned, this, [this](int t) {
+        m_settings.tunedThreads = t;
+        m_settings.tunedFor = m_settings.tuneKey();
+        m_settings.save();
+    });
     connect(m_engine, &KataGoEngine::logLine, this, [this](const QString &l) { m_log->appendPlainText(l); });
     restoreAutosave();
     positionChanged();
@@ -48,18 +56,18 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_updater, &ModelUpdater::listReady, this, &MainWindow::onModelList);
     connect(m_updater, &ModelUpdater::failed, this, [this](const QString &msg) {
         m_log->appendPlainText(msg);
-        if (m_manualCheck) QMessageBox::warning(this, QStringLiteral("模型更新"), msg);
+        if (m_manualCheck) QMessageBox::warning(this, T("模型更新"), msg);
         else statusBar()->showMessage(msg, 8000);
     });
     connect(m_updater, &ModelUpdater::downloadProgress, this, [this](qint64 d, qint64 t) {
-        if (t > 0) statusBar()->showMessage(QStringLiteral("正在下载新模型… %1%（%2 / %3 MB）")
+        if (t > 0) statusBar()->showMessage(T("正在下载新模型… %1%（%2 / %3 MB）")
                                                 .arg(d * 100 / t).arg(d >> 20).arg(t >> 20));
     });
     connect(m_updater, &ModelUpdater::downloadFinished, this, [this](const QString &path) {
         m_settings.modelPath = path;
         m_settings.save();
-        statusBar()->showMessage(QStringLiteral("已切换到新模型 %1（第一次使用需要几分钟显卡调优）").arg(QFileInfo(path).fileName()), 15000);
-        m_log->appendPlainText(QStringLiteral("—— 切换模型：%1 ——").arg(path));
+        statusBar()->showMessage(T("已切换到新模型 %1（第一次使用需要几分钟显卡调优）").arg(QFileInfo(path).fileName()), 15000);
+        m_log->appendPlainText(T("—— 切换模型：%1 ——").arg(path));
         restartEngine();
     });
     if (m_settings.autoUpdateModel
@@ -83,7 +91,7 @@ void MainWindow::closeEvent(QCloseEvent *e)
 
 void MainWindow::buildUi()
 {
-    setWindowTitle(QStringLiteral("NanoGo 围棋"));
+    setWindowTitle(T("NanoGo 围棋"));
     resize(1280, 860);
 
     m_board = new BoardWidget(&m_tree, this);
@@ -93,23 +101,23 @@ void MainWindow::buildUi()
     side->setMinimumWidth(320);
     auto *v = new QVBoxLayout(side);
 
-    auto *gameBox = new QGroupBox(QStringLiteral("对局"), side);
+    auto *gameBox = new QGroupBox(T("对局"), side);
     auto *gl = new QVBoxLayout(gameBox);
     m_gameInfo = new QLabel(gameBox);
     m_gameInfo->setTextFormat(Qt::RichText);
     gl->addWidget(m_gameInfo);
     v->addWidget(gameBox);
 
-    auto *anaBox = new QGroupBox(QStringLiteral("分析"), side);
+    auto *anaBox = new QGroupBox(T("分析"), side);
     auto *al = new QVBoxLayout(anaBox);
-    m_analysisInfo = new QLabel(QStringLiteral("按空格键开始分析"), anaBox);
+    m_analysisInfo = new QLabel(T("按空格键开始分析"), anaBox);
     m_analysisInfo->setTextFormat(Qt::RichText);
     QFont big = m_analysisInfo->font(); big.setPointSize(big.pointSize() + 2);
     m_analysisInfo->setFont(big);
     al->addWidget(m_analysisInfo);
     v->addWidget(anaBox);
 
-    auto *refBox = new QGroupBox(QStringLiteral("参考图（AI 推荐）"), side);
+    auto *refBox = new QGroupBox(T("参考图（AI 推荐）"), side);
     auto *rl = new QVBoxLayout(refBox);
     m_lastMoveRef = new QLabel(refBox);
     m_lastMoveRef->setWordWrap(true);
@@ -117,11 +125,11 @@ void MainWindow::buildUi()
     rl->addWidget(m_lastMoveRef);
     m_refList = new QListWidget(refBox);
     m_refList->setWordWrap(true);
-    m_refList->setToolTip(QStringLiteral("点一下在棋盘上显示这条变化，再点一下取消"));
+    m_refList->setToolTip(T("点一下在棋盘上显示这条变化，再点一下取消"));
     rl->addWidget(m_refList);
     connect(m_refList, &QListWidget::itemClicked, this, [this](QListWidgetItem *it) {
         const QString move = it->data(Qt::UserRole).toString();
-        if (move == "__compute__") { sendSideQuery(0, 400); it->setText(QStringLiteral("计算中…")); return; }
+        if (move == "__compute__") { sendSideQuery(0, 400); it->setText(T("计算中…")); return; }
         if (move.isEmpty()) return;
         if (m_pinnedMove == move) {
             m_pinnedMove.clear();
@@ -134,15 +142,15 @@ void MainWindow::buildUi()
     });
     v->addWidget(refBox, 2);
 
-    auto *cBox = new QGroupBox(QStringLiteral("注释"), side);
+    auto *cBox = new QGroupBox(T("注释"), side);
     auto *cl = new QVBoxLayout(cBox);
     m_comment = new QPlainTextEdit(cBox);
-    m_comment->setPlaceholderText(QStringLiteral("这一手的注释…"));
+    m_comment->setPlaceholderText(T("这一手的注释…"));
     connect(m_comment, &QPlainTextEdit::textChanged, this, [this] { m_tree.current()->comment = m_comment->toPlainText(); });
     cl->addWidget(m_comment);
     v->addWidget(cBox, 1);
 
-    auto *logBox = new QGroupBox(QStringLiteral("引擎日志"), side);
+    auto *logBox = new QGroupBox(T("引擎日志"), side);
     auto *ll = new QVBoxLayout(logBox);
     m_log = new QPlainTextEdit(logBox);
     m_log->setReadOnly(true);
@@ -163,22 +171,22 @@ void MainWindow::buildUi()
     statusBar()->addPermanentWidget(m_engineStatus, 1);
 
     // 菜单
-    QMenu *file = menuBar()->addMenu(QStringLiteral("文件(&F)"));
-    file->addAction(QStringLiteral("新对局（摆谱 / 分析）"), QKeySequence::New, this, &MainWindow::newGame);
-    file->addAction(QStringLiteral("人机对弈…"), QKeySequence(Qt::CTRL | Qt::Key_G), this, &MainWindow::newAiGame);
-    file->addAction(QStringLiteral("打开棋谱…"), QKeySequence::Open, this, &MainWindow::openSgf);
-    file->addAction(QStringLiteral("保存棋谱…"), QKeySequence::Save, this, &MainWindow::saveSgf);
+    QMenu *file = menuBar()->addMenu(T("文件(&F)"));
+    file->addAction(T("新对局（摆谱 / 分析）"), QKeySequence::New, this, &MainWindow::newGame);
+    file->addAction(T("人机对弈…"), QKeySequence(Qt::CTRL | Qt::Key_G), this, &MainWindow::newAiGame);
+    file->addAction(T("打开棋谱…"), QKeySequence::Open, this, &MainWindow::openSgf);
+    file->addAction(T("保存棋谱…"), QKeySequence::Save, this, &MainWindow::saveSgf);
     file->addSeparator();
-    file->addAction(QStringLiteral("退出"), QKeySequence::Quit, this, &QWidget::close);
+    file->addAction(T("退出"), QKeySequence::Quit, this, &QWidget::close);
 
-    QMenu *nav = menuBar()->addMenu(QStringLiteral("棋局(&G)"));
+    QMenu *nav = menuBar()->addMenu(T("棋局(&G)"));
     // 浏览棋局时 AI 暂停，免得一退回去 AI 又马上把棋下回来
     auto navigate = [this](auto step) {
         m_aiPaused = true;
         if (!m_aiQueryId.isEmpty()) { m_engine->terminate(m_aiQueryId); m_aiQueryId.clear(); }
         if (step()) positionChanged();
     };
-    QAction *backA = nav->addAction(QStringLiteral("后退一步（悔棋）"), QKeySequence(Qt::Key_Left), this, [this, navigate] {
+    QAction *backA = nav->addAction(T("后退一步（悔棋）"), QKeySequence(Qt::Key_Left), this, [this, navigate] {
         navigate([this] {
             if (!m_tree.back()) return false;
             // 人机对弈：退到轮你走为止（一次退两步）
@@ -186,25 +194,25 @@ void MainWindow::buildUi()
             return true;
         });
     });
-    QAction *fwdA = nav->addAction(QStringLiteral("前进一步"), QKeySequence(Qt::Key_Right), this, [this, navigate] {
+    QAction *fwdA = nav->addAction(T("前进一步"), QKeySequence(Qt::Key_Right), this, [this, navigate] {
         navigate([this] { return m_tree.forward(); });
     });
-    QAction *startA = nav->addAction(QStringLiteral("回到开头"), QKeySequence(Qt::Key_Home), this, [this, navigate] {
+    QAction *startA = nav->addAction(T("回到开头"), QKeySequence(Qt::Key_Home), this, [this, navigate] {
         navigate([this] { m_tree.toStart(); return true; });
     });
-    QAction *endA = nav->addAction(QStringLiteral("走到最后"), QKeySequence(Qt::Key_End), this, [this, navigate] {
+    QAction *endA = nav->addAction(T("走到最后"), QKeySequence(Qt::Key_End), this, [this, navigate] {
         navigate([this] { m_tree.toEnd(); return true; });
     });
     nav->addSeparator();
-    QAction *passA = nav->addAction(QStringLiteral("停一手"), QKeySequence(Qt::CTRL | Qt::Key_P), this, [this] {
+    QAction *passA = nav->addAction(T("停一手"), QKeySequence(Qt::CTRL | Qt::Key_P), this, [this] {
         if (m_aiColor != Stone::Empty && m_tree.toPlay() == m_aiColor) return;
         m_aiPaused = false;
         m_tree.pass();
         positionChanged();
     });
-    QAction *aiGoA = nav->addAction(QStringLiteral("让 AI 走这一步"), QKeySequence(Qt::CTRL | Qt::Key_Return), this, [this] {
+    QAction *aiGoA = nav->addAction(T("让 AI 走这一步"), QKeySequence(Qt::CTRL | Qt::Key_Return), this, [this] {
         if (m_engine->state() != KataGoEngine::State::Ready) {
-            statusBar()->showMessage(QStringLiteral("引擎还没就绪，请稍候"), 3000);
+            statusBar()->showMessage(T("引擎还没就绪，请稍候"), 3000);
             return;
         }
         // 不管轮到谁，都让 AI 替当前一方走一步
@@ -214,8 +222,8 @@ void MainWindow::buildUi()
     });
     aiGoA->setShortcuts({QKeySequence(Qt::CTRL | Qt::Key_Return), QKeySequence(Qt::CTRL | Qt::Key_Enter)});
 
-    QMenu *ana = menuBar()->addMenu(QStringLiteral("分析(&A)"));
-    m_analyzeAct = ana->addAction(QStringLiteral("开始/停止分析"));
+    QMenu *ana = menuBar()->addMenu(T("分析(&A)"));
+    m_analyzeAct = ana->addAction(T("开始/停止分析"));
     m_analyzeAct->setShortcut(QKeySequence(Qt::Key_Space));
     m_analyzeAct->setCheckable(true);
     connect(m_analyzeAct, &QAction::toggled, this, [this](bool on) {
@@ -223,12 +231,12 @@ void MainWindow::buildUi()
         else { m_engine->terminate(m_queryId); m_queryId.clear(); }
         refreshInfo();
     });
-    m_candAct = ana->addAction(QStringLiteral("显示候选点"));
+    m_candAct = ana->addAction(T("显示候选点"));
     m_candAct->setCheckable(true);
     m_candAct->setChecked(true);
     m_candAct->setShortcut(QKeySequence(Qt::Key_H));
     connect(m_candAct, &QAction::toggled, m_board, &BoardWidget::setShowCandidates);
-    m_ownAct = ana->addAction(QStringLiteral("显示形势（地盘）"));
+    m_ownAct = ana->addAction(T("显示形势（地盘）"));
     m_ownAct->setCheckable(true);
     m_ownAct->setShortcut(QKeySequence(Qt::Key_T));
     connect(m_ownAct, &QAction::toggled, this, [this](bool on) {
@@ -237,26 +245,50 @@ void MainWindow::buildUi()
         if (on && !m_analyzeAct->isChecked() && !m_tree.current()->analysis.raw.contains("ownership")) sendSideQuery(0, 200);
     });
     ana->addSeparator();
-    QAction *refA = ana->addAction(QStringLiteral("参考图（AI 推荐的下法）"), QKeySequence(Qt::Key_V), this, [this] {
+    QAction *refA = ana->addAction(T("参考图（AI 推荐的下法）"), QKeySequence(Qt::Key_V), this, [this] {
         if (!m_tree.current()->analysis.raw.contains("moveInfos")) sendSideQuery(0, 400);
         else if (m_refList->count() > 0) m_refList->itemClicked(m_refList->item(0)), m_refList->setCurrentRow(0);
     });
-    QAction *countA = ana->addAction(QStringLiteral("点目 / 结束对局"), QKeySequence(Qt::CTRL | Qt::Key_E), this, &MainWindow::countScore);
+    QAction *countA = ana->addAction(T("点目 / 结束对局"), QKeySequence(Qt::CTRL | Qt::Key_E), this, &MainWindow::countScore);
     ana->addSeparator();
-    ana->addAction(QStringLiteral("重启引擎"), this, &MainWindow::restartEngine);
+    ana->addAction(T("重启引擎"), this, &MainWindow::restartEngine);
 
-    QMenu *set = menuBar()->addMenu(QStringLiteral("设置(&S)"));
-    set->addAction(QStringLiteral("引擎与对局设置…"), this, &MainWindow::openSettings);
+    QMenu *set = menuBar()->addMenu(T("设置(&S)"));
+    set->addAction(T("引擎与对局设置…"), this, &MainWindow::openSettings);
     set->addSeparator();
-    set->addAction(QStringLiteral("检查模型更新…"), this, [this] { checkModel(true); });
-    QAction *autoUpd = set->addAction(QStringLiteral("自动切换到官方最强模型（每天检查一次）"));
+    set->addAction(T("检查模型更新…"), this, [this] { checkModel(true); });
+    QMenu *langMenu = set->addMenu(T("界面语言") + " / Language");
+    auto *langGroup = new QActionGroup(this);
+    const QList<QPair<QString, QString>> langs = {{"auto", T("自动 / Auto")}, {"zh", QString::fromUtf8("中文")},
+                                                  {"en", "English"}, {"ja", QString::fromUtf8("日本語")}, {"ko", QString::fromUtf8("한국어")}};
+    for (const auto &l : langs) {
+        QAction *a = langMenu->addAction(l.second);
+        a->setCheckable(true);
+        a->setChecked(m_settings.language == l.first);
+        langGroup->addAction(a);
+        const QString code = l.first;
+        connect(a, &QAction::triggered, this, [this, code] {
+            const QString before = m_settings.effectiveLanguage();
+            m_settings.language = code;
+            m_settings.save();
+            if (before == m_settings.effectiveLanguage()) return;
+            if (QMessageBox::question(this, T("界面语言"), T("切换语言需要重新打开 NanoGo，现在重新打开吗？（当前棋局会自动保存）"))
+                == QMessageBox::Yes) {
+                autosave();
+                m_engine->stop();
+                QProcess::startDetached(QCoreApplication::applicationFilePath(), {});
+                QApplication::quit();
+            }
+        });
+    }
+    QAction *autoUpd = set->addAction(T("自动切换到官方最强模型（每天检查一次）"));
     autoUpd->setCheckable(true);
     autoUpd->setChecked(m_settings.autoUpdateModel);
     connect(autoUpd, &QAction::toggled, this, [this](bool on) { m_settings.autoUpdateModel = on; m_settings.save(); });
 
-    QToolBar *tb = addToolBar(QStringLiteral("工具栏"));
+    QToolBar *tb = addToolBar(T("工具栏"));
     tb->setMovable(false);
-    tb->addAction(QStringLiteral("人机对弈"), this, &MainWindow::newAiGame);
+    tb->addAction(T("人机对弈"), this, &MainWindow::newAiGame);
     tb->addSeparator();
     tb->addAction(startA);
     tb->addAction(backA);
@@ -292,12 +324,12 @@ void MainWindow::newGame()
 
 void MainWindow::openSgf()
 {
-    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("打开棋谱"), QFileInfo(m_sgfPath).absolutePath(),
-                                                      QStringLiteral("SGF 棋谱 (*.sgf);;所有文件 (*)"));
+    const QString path = QFileDialog::getOpenFileName(this, T("打开棋谱"), QFileInfo(m_sgfPath).absolutePath(),
+                                                      T("SGF 棋谱 (*.sgf);;所有文件 (*)"));
     if (path.isEmpty()) return;
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, QStringLiteral("打开失败"), QStringLiteral("无法读取文件：%1").arg(path));
+        QMessageBox::warning(this, T("打开失败"), T("无法读取文件：%1").arg(path));
         return;
     }
     m_aiColor = Stone::Empty;
@@ -307,28 +339,28 @@ void MainWindow::openSgf()
     m_queryNode = nullptr;
     QString err;
     if (!Sgf::load(Sgf::decode(f.readAll()), m_tree, &err)) {
-        QMessageBox::warning(this, QStringLiteral("打开失败"), err);
+        QMessageBox::warning(this, T("打开失败"), err);
         newGame();
         return;
     }
     m_sgfPath = path;
-    setWindowTitle(QStringLiteral("NanoGo 围棋 - %1").arg(QFileInfo(path).fileName()));
+    setWindowTitle(T("NanoGo 围棋 - %1").arg(QFileInfo(path).fileName()));
     positionChanged();
 }
 
 void MainWindow::saveSgf()
 {
-    QString path = QFileDialog::getSaveFileName(this, QStringLiteral("保存棋谱"), m_sgfPath, QStringLiteral("SGF 棋谱 (*.sgf)"));
+    QString path = QFileDialog::getSaveFileName(this, T("保存棋谱"), m_sgfPath, T("SGF 棋谱 (*.sgf)"));
     if (path.isEmpty()) return;
     if (!path.endsWith(".sgf", Qt::CaseInsensitive)) path += ".sgf";
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        QMessageBox::warning(this, QStringLiteral("保存失败"), QStringLiteral("无法写入：%1").arg(path));
+        QMessageBox::warning(this, T("保存失败"), T("无法写入：%1").arg(path));
         return;
     }
     f.write(Sgf::save(m_tree).toUtf8());
     m_sgfPath = path;
-    statusBar()->showMessage(QStringLiteral("已保存到 %1").arg(path), 5000);
+    statusBar()->showMessage(T("已保存到 %1").arg(path), 5000);
 }
 
 void MainWindow::openSettings()
@@ -339,7 +371,18 @@ void MainWindow::openSettings()
     m_settings = dlg.result();
     m_settings.save();
     const bool engineChanged = old.katagoPath != m_settings.katagoPath || old.modelPath != m_settings.modelPath
-                               || old.gpuDevice != m_settings.gpuDevice || old.searchThreads != m_settings.searchThreads;
+                               || old.gpuDevice != m_settings.gpuDevice || old.searchThreads != m_settings.searchThreads
+                               || old.tunedFor != m_settings.tunedFor;
+    if (old.effectiveLanguage() != m_settings.effectiveLanguage()) {
+        if (QMessageBox::question(this, T("界面语言"), T("切换语言需要重新打开 NanoGo，现在重新打开吗？（当前棋局会自动保存）"))
+            == QMessageBox::Yes) {
+            autosave();
+            m_engine->stop();
+            QProcess::startDetached(QCoreApplication::applicationFilePath(), {});
+            QApplication::quit();
+            return;
+        }
+    }
     if (engineChanged || m_engine->state() == KataGoEngine::State::Failed) restartEngine();
     else if (m_analyzeAct->isChecked()) requestAnalysis();
 }
@@ -348,15 +391,15 @@ void MainWindow::restartEngine()
 {
     m_queryId.clear();
     m_queryNode = nullptr;
-    m_log->appendPlainText(QStringLiteral("—— 重启引擎 ——"));
+    m_log->appendPlainText(T("—— 重启引擎 ——"));
     m_engine->start(m_settings);
 }
 
 void MainWindow::onPointClicked(int x, int y)
 {
     if (m_aiColor != Stone::Empty && m_tree.toPlay() == m_aiColor) {
-        statusBar()->showMessage(m_aiPaused ? QStringLiteral("现在轮到 AI：按 Ctrl+Enter 让 AI 走，或按 → 前进")
-                                            : QStringLiteral("AI 正在思考，请稍候…"), 3000);
+        statusBar()->showMessage(m_aiPaused ? T("现在轮到 AI：按 Ctrl+Enter 让 AI 走，或按 → 前进")
+                                            : T("AI 正在思考，请稍候…"), 3000);
         return;
     }
     if (m_tree.play(x, y)) { m_aiPaused = false; m_aiOneShot = false; positionChanged(); }
@@ -370,8 +413,8 @@ void MainWindow::onEngineState(KataGoEngine::State s, const QString &msg)
     if (s == KataGoEngine::State::Ready && m_analyzeAct->isChecked()) requestAnalysis();
     if (s == KataGoEngine::State::Ready) { m_aiQueryId.clear(); maybeAiMove(); }
     if (s == KataGoEngine::State::Failed) {
-        QMessageBox box(QMessageBox::Warning, QStringLiteral("引擎出错"), msg, QMessageBox::Ok, this);
-        QPushButton *settingsBtn = box.addButton(QStringLiteral("打开设置"), QMessageBox::ActionRole);
+        QMessageBox box(QMessageBox::Warning, T("引擎出错"), msg, QMessageBox::Ok, this);
+        QPushButton *settingsBtn = box.addButton(T("打开设置"), QMessageBox::ActionRole);
         box.exec();
         if (box.clickedButton() == static_cast<QAbstractButton *>(settingsBtn)) openSettings();
     }
@@ -458,7 +501,7 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
             m_tree.result = m_aiColor == Stone::Black ? QStringLiteral("W+R") : QStringLiteral("B+R");
             m_aiColor = Stone::Empty;
             refreshInfo();
-            QMessageBox::information(this, QStringLiteral("对局结束"), QStringLiteral("AI 认输，你赢了！"));
+            QMessageBox::information(this, T("对局结束"), T("AI 认输，你赢了！"));
             return;
         }
         // 对方刚停了一手：如果停一手不吃亏，AI 也停，好让对局结束
@@ -541,7 +584,7 @@ void MainWindow::positionChanged()
     if (m_aiColor != Stone::Empty) {
         const GameNode *cur = m_tree.current();
         if (cur->move.isPass() && cur->move.isValid() && cur->parent && cur->parent->move.isValid() && cur->parent->move.isPass()) {
-            statusBar()->showMessage(QStringLiteral("双方都停了一手，正在点目…"), 5000);
+            statusBar()->showMessage(T("双方都停了一手，正在点目…"), 5000);
             countScore();
             return;
         }
@@ -553,11 +596,11 @@ void MainWindow::maybeAiMove()
 {
     if (m_aiColor == Stone::Empty || m_tree.toPlay() != m_aiColor) return;
     if (m_aiPaused) {
-        statusBar()->showMessage(QStringLiteral("AI 已暂停：你落子后继续，或按 Ctrl+Enter 让 AI 走这一步"), 5000);
+        statusBar()->showMessage(T("AI 已暂停：你落子后继续，或按 Ctrl+Enter 让 AI 走这一步"), 5000);
         return;
     }
     if (m_engine->state() != KataGoEngine::State::Ready) {
-        statusBar()->showMessage(QStringLiteral("等引擎就绪后 AI 会自动落子"), 3000);
+        statusBar()->showMessage(T("等引擎就绪后 AI 会自动落子"), 3000);
         return;
     }
     if (!m_aiQueryId.isEmpty() && m_aiNode == m_tree.current()) return; // 已经在算了
@@ -575,37 +618,37 @@ void MainWindow::sendAiQuery()
     q["includePolicy"] = true;
     m_aiNode = m_tree.current();
     m_aiQueryId = m_engine->analyze(q);
-    statusBar()->showMessage(QStringLiteral("AI 思考中…"), 2000);
+    statusBar()->showMessage(T("AI 思考中…"), 2000);
 }
 
 void MainWindow::newAiGame()
 {
     QDialog dlg(this);
-    dlg.setWindowTitle(QStringLiteral("人机对弈"));
+    dlg.setWindowTitle(T("人机对弈"));
     auto *form = new QFormLayout(&dlg);
     auto *color = new QComboBox(&dlg);
-    color->addItem(QStringLiteral("我执黑（先走）"), int(Stone::Black));
-    color->addItem(QStringLiteral("我执白"), int(Stone::White));
-    form->addRow(QStringLiteral("我的颜色："), color);
+    color->addItem(T("我执黑（先走）"), int(Stone::Black));
+    color->addItem(T("我执白"), int(Stone::White));
+    form->addRow(T("我的颜色："), color);
     auto *handicap = new QSpinBox(&dlg);
     handicap->setRange(0, 9);
-    handicap->setSuffix(QStringLiteral(" 子"));
-    handicap->setToolTip(QStringLiteral("让子时黑方先摆子，白方先走，贴目自动改为 0.5"));
-    form->addRow(QStringLiteral("让子（黑方摆子）："), handicap);
+    handicap->setSuffix(T(" 子"));
+    handicap->setToolTip(T("让子时黑方先摆子，白方先走，贴目自动改为 0.5"));
+    form->addRow(T("让子（黑方摆子）："), handicap);
     auto *strength = new QComboBox(&dlg);
-    strength->addItem(QStringLiteral("很快（每步 1 次计算，只凭直觉）"), 1);
-    strength->addItem(QStringLiteral("快（每步 20 次）"), 20);
-    strength->addItem(QStringLiteral("中（每步 100 次）"), 100);
-    strength->addItem(QStringLiteral("强（每步 400 次，约 2 秒）"), 400);
-    strength->addItem(QStringLiteral("最强（每步 1600 次，约 8 秒）"), 1600);
+    strength->addItem(T("很快（每步 1 次计算，只凭直觉）"), 1);
+    strength->addItem(T("快（每步 20 次）"), 20);
+    strength->addItem(T("中（每步 100 次）"), 100);
+    strength->addItem(T("强（每步 400 次，约 2 秒）"), 400);
+    strength->addItem(T("最强（每步 1600 次，约 8 秒）"), 1600);
     strength->setCurrentIndex(qMax(0, strength->findData(m_aiVisits)));
-    form->addRow(QStringLiteral("AI 计算量："), strength);
-    auto *note = new QLabel(QStringLiteral("提示：zhizi 模型即使只算 1 次也是职业以上水平。\n按人类段位调整强度会在后续版本加入。"), &dlg);
+    form->addRow(T("AI 计算量："), strength);
+    auto *note = new QLabel(T("提示：KataGo 的模型即使每步只算 1 次也有职业以上水平。\n按人类段位调整强度会在后续版本加入。"), &dlg);
     note->setStyleSheet("color: gray;");
     form->addRow(note);
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-    bb->button(QDialogButtonBox::Ok)->setText(QStringLiteral("开始"));
-    bb->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    bb->button(QDialogButtonBox::Ok)->setText(T("开始"));
+    bb->button(QDialogButtonBox::Cancel)->setText(T("取消"));
     connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     form->addRow(bb);
@@ -628,12 +671,12 @@ void MainWindow::newAiGame()
         m_tree.setKomi(0.5);
         m_tree.root()->extraProps["HA"] = {QString::number(h)};
     }
-    m_tree.playerBlack = me == Stone::Black ? QStringLiteral("我") : QStringLiteral("NanoGo AI");
-    m_tree.playerWhite = me == Stone::White ? QStringLiteral("我") : QStringLiteral("NanoGo AI");
+    m_tree.playerBlack = me == Stone::Black ? T("我") : QStringLiteral("NanoGo AI");
+    m_tree.playerWhite = me == Stone::White ? T("我") : QStringLiteral("NanoGo AI");
     m_tree.setCurrent(m_tree.root());
     m_aiColor = opponent(me);
     m_aiPaused = false;
-    setWindowTitle(QStringLiteral("NanoGo 围棋 - 人机对弈"));
+    setWindowTitle(T("NanoGo 围棋 - 人机对弈"));
     positionChanged();
 }
 
@@ -642,44 +685,44 @@ void MainWindow::refreshInfo()
     refreshReference();
     const GameNode *cur = m_tree.current();
     const int moveNo = cur->depth();
-    const QString toPlay = m_tree.toPlay() == Stone::Black ? QStringLiteral("黑") : QStringLiteral("白");
-    const QString pb = m_tree.playerBlack.isEmpty() ? QStringLiteral("黑方") : m_tree.playerBlack.toHtmlEscaped();
-    const QString pw = m_tree.playerWhite.isEmpty() ? QStringLiteral("白方") : m_tree.playerWhite.toHtmlEscaped();
+    const QString toPlay = m_tree.toPlay() == Stone::Black ? T("黑") : T("白");
+    const QString pb = m_tree.playerBlack.isEmpty() ? T("黑方") : m_tree.playerBlack.toHtmlEscaped();
+    const QString pw = m_tree.playerWhite.isEmpty() ? T("白方") : m_tree.playerWhite.toHtmlEscaped();
     QString lastMove;
     if (cur->move.isValid())
-        lastMove = QStringLiteral("，上一手 %1 %2").arg(cur->move.color == Stone::Black ? "黑" : "白",
+        lastMove = T("，上一手 %1 %2").arg(cur->move.color == Stone::Black ? T("黑") : T("白"),
                                                      BoardWidget::toGtp(cur->move.x, cur->move.y, m_tree.boardSize()));
-    m_gameInfo->setText(QStringLiteral("<b>%1</b> 对 <b>%2</b><br>第 %3 手%4<br>轮到 %5 走 · 贴 %6 目<br>提子：黑 %7 · 白 %8%9")
+    m_gameInfo->setText(T("<b>%1</b> 对 <b>%2</b><br>第 %3 手%4<br>轮到 %5 走 · 贴 %6 目<br>提子：黑 %7 · 白 %8%9")
                             .arg(pb, pw).arg(moveNo).arg(lastMove, toPlay).arg(m_tree.komi())
                             .arg(m_tree.board().capturesBlack()).arg(m_tree.board().capturesWhite())
-                            .arg(m_tree.result.isEmpty() ? QString() : QStringLiteral("<br>结果：%1").arg(m_tree.result.toHtmlEscaped())));
+                            .arg(m_tree.result.isEmpty() ? QString() : T("<br>结果：%1").arg(m_tree.result.toHtmlEscaped())));
 
     QString turn;
     if (m_aiColor != Stone::Empty) {
-        if (m_tree.toPlay() != m_aiColor) turn = QStringLiteral("<b style='color:#2a7'>轮到你走</b>");
-        else if (m_aiPaused) turn = QStringLiteral("<b style='color:#b70'>AI 已暂停</b>：落子或按 Ctrl+Enter 继续");
-        else turn = QStringLiteral("<b style='color:#27a'>AI 思考中…</b>");
+        if (m_tree.toPlay() != m_aiColor) turn = T("<b style='color:#2a7'>轮到你走</b>");
+        else if (m_aiPaused) turn = T("<b style='color:#b70'>AI 已暂停</b>：落子或按 Ctrl+Enter 继续");
+        else turn = T("<b style='color:#27a'>AI 思考中…</b>");
         turn += "<br>";
     }
     const Analysis &a = cur->analysis;
     if (!a.valid) {
-        m_analysisInfo->setText(turn + (m_analyzeAct->isChecked() ? QStringLiteral("计算中…") : QStringLiteral("按空格键开始分析")));
+        m_analysisInfo->setText(turn + (m_analyzeAct->isChecked() ? T("计算中…") : T("按空格键开始分析")));
         return;
     }
     const double lead = a.scoreLeadBlack;
-    const QString leader = lead >= 0 ? QStringLiteral("黑") : QStringLiteral("白");
-    m_analysisInfo->setText(turn + QStringLiteral("黑胜率 <b>%1%</b><br>%2 领先 <b>%3</b> 目<br><span style='color:gray'>计算量 %4</span>")
+    const QString leader = lead >= 0 ? T("黑") : T("白");
+    m_analysisInfo->setText(turn + T("黑胜率 <b>%1%</b><br>%2 领先 <b>%3</b> 目<br><span style='color:gray'>计算量 %4</span>")
                                 .arg(a.winrateBlack * 100, 0, 'f', 1).arg(leader).arg(qAbs(lead), 0, 'f', 1).arg(a.visits));
 }
 
 void MainWindow::checkModel(bool manual)
 {
     if (m_updater->busy()) {
-        if (manual) QMessageBox::information(this, QStringLiteral("模型更新"), QStringLiteral("正在检查或下载中，请稍候。"));
+        if (manual) QMessageBox::information(this, T("模型更新"), T("正在检查或下载中，请稍候。"));
         return;
     }
     m_manualCheck = manual;
-    statusBar()->showMessage(QStringLiteral("正在从 katagotraining.org 检查最新模型…"), 5000);
+    statusBar()->showMessage(T("正在从 katagotraining.org 检查最新模型…"), 5000);
     m_updater->checkForUpdates();
 }
 
@@ -689,34 +732,34 @@ void MainWindow::onModelList(const QList<NetworkInfo> &list)
     m_settings.save();
     const NetworkInfo best = ModelUpdater::strongest(list);
     if (best.name.isEmpty()) {
-        if (m_manualCheck) QMessageBox::warning(this, QStringLiteral("模型更新"), QStringLiteral("没有从官方列表里找到可用的模型。"));
+        if (m_manualCheck) QMessageBox::warning(this, T("模型更新"), T("没有从官方列表里找到可用的模型。"));
         return;
     }
     const NetworkInfo *cur = ModelUpdater::find(list, m_settings.modelPath);
     auto desc = [](const NetworkInfo &n) {
-        return QStringLiteral("%1\n等级分 %2 ± %3（%4 局评测）").arg(n.name).arg(n.elo, 0, 'f', 0).arg(n.eloUncertainty, 0, 'f', 0).arg(n.games);
+        return T("%1\n等级分 %2 ± %3（%4 局评测）").arg(n.name).arg(n.elo, 0, 'f', 0).arg(n.eloUncertainty, 0, 'f', 0).arg(n.games);
     };
-    m_log->appendPlainText(QStringLiteral("官方最强模型：") + desc(best).replace('\n', ' '));
+    m_log->appendPlainText(T("官方最强模型：") + desc(best).replace('\n', ' '));
 
     if (cur && (cur->name == best.name || cur->eloLower >= best.eloLower)) {
         if (m_manualCheck)
-            QMessageBox::information(this, QStringLiteral("模型更新"), QStringLiteral("当前用的已经是最强模型：\n%1").arg(desc(*cur)));
-        else statusBar()->showMessage(QStringLiteral("当前模型已是官方最强"), 5000);
+            QMessageBox::information(this, T("模型更新"), T("当前用的已经是最强模型：\n%1").arg(desc(*cur)));
+        else statusBar()->showMessage(T("当前模型已是官方最强"), 5000);
         return;
     }
 
     const QString sizeMb = QString::number(best.bytes >> 20);
     // 当前模型在官方列表里且开了自动更新：直接下载切换；否则先问
     if (!(cur && m_settings.autoUpdateModel)) {
-        const QString curText = cur ? desc(*cur) : QStringLiteral("%1（不在官方列表里，无法比较）").arg(QFileInfo(m_settings.modelPath).fileName());
-        auto ans = QMessageBox::question(this, QStringLiteral("发现更强的模型"),
-            QStringLiteral("官方最强模型：\n%1\n\n当前模型：\n%2\n\n要下载（约 %3 MB）并切换吗？旧模型会保留。")
+        const QString curText = cur ? desc(*cur) : T("%1（不在官方列表里，无法比较）").arg(QFileInfo(m_settings.modelPath).fileName());
+        auto ans = QMessageBox::question(this, T("发现更强的模型"),
+            T("官方最强模型：\n%1\n\n当前模型：\n%2\n\n要下载（约 %3 MB）并切换吗？旧模型会保留。")
                 .arg(desc(best), curText, sizeMb));
         if (ans != QMessageBox::Yes) return;
     } else {
-        m_log->appendPlainText(QStringLiteral("自动更新：%1 → %2（高 %3 分）").arg(cur->name, best.name).arg(best.elo - cur->elo, 0, 'f', 0));
+        m_log->appendPlainText(T("自动更新：%1 → %2（高 %3 分）").arg(cur->name, best.name).arg(best.elo - cur->elo, 0, 'f', 0));
     }
-    statusBar()->showMessage(QStringLiteral("开始下载新模型 %1（%2 MB）…").arg(best.name, sizeMb), 5000);
+    statusBar()->showMessage(T("开始下载新模型 %1（%2 MB）…").arg(best.name, sizeMb), 5000);
     m_updater->download(best);
 }
 
@@ -754,14 +797,14 @@ void MainWindow::restoreAutosave()
     m_aiColor = Stone(st.value("aiColor", 0).toInt());
     m_aiVisits = st.value("aiVisits", m_aiVisits).toInt();
     m_sgfPath = st.value("sgfPath").toString();
-    if (m_aiColor != Stone::Empty) setWindowTitle(QStringLiteral("NanoGo 围棋 - 人机对弈"));
-    else if (!m_sgfPath.isEmpty()) setWindowTitle(QStringLiteral("NanoGo 围棋 - %1").arg(QFileInfo(m_sgfPath).fileName()));
+    if (m_aiColor != Stone::Empty) setWindowTitle(T("NanoGo 围棋 - 人机对弈"));
+    else if (!m_sgfPath.isEmpty()) setWindowTitle(T("NanoGo 围棋 - %1").arg(QFileInfo(m_sgfPath).fileName()));
 }
 
 void MainWindow::sendSideQuery(int purpose, int visits)
 {
     if (m_engine->state() != KataGoEngine::State::Ready) {
-        statusBar()->showMessage(QStringLiteral("引擎还没就绪，请稍候再试"), 3000);
+        statusBar()->showMessage(T("引擎还没就绪，请稍候再试"), 3000);
         return;
     }
     QJsonObject q = buildQuery();
@@ -777,13 +820,13 @@ void MainWindow::sendSideQuery(int purpose, int visits)
 void MainWindow::countScore()
 {
     if (m_engine->state() != KataGoEngine::State::Ready) {
-        QMessageBox::information(this, QStringLiteral("点目"), QStringLiteral("引擎还没就绪，请稍候再点目。"));
+        QMessageBox::information(this, T("点目"), T("引擎还没就绪，请稍候再点目。"));
         return;
     }
     if (!m_aiQueryId.isEmpty()) { m_engine->terminate(m_aiQueryId); m_aiQueryId.clear(); }
     m_aiPaused = true;
     m_ownAct->setChecked(true); // 点目时显示地盘归属
-    statusBar()->showMessage(QStringLiteral("正在点目…"), 5000);
+    statusBar()->showMessage(T("正在点目…"), 5000);
     sendSideQuery(1, 800);
 }
 
@@ -792,7 +835,7 @@ void MainWindow::showCount(GameNode *node, const QJsonObject &resp)
     const int n = m_tree.boardSize();
     const QJsonArray own = resp.value("ownership").toArray();
     if (own.size() != n * n) {
-        QMessageBox::warning(this, QStringLiteral("点目"), QStringLiteral("引擎没有返回地盘信息，无法点目。"));
+        QMessageBox::warning(this, T("点目"), T("引擎没有返回地盘信息，无法点目。"));
         return;
     }
     // 数子法（中国规则）：活子 + 围住的空点。归属不明（|v| < 0.5）的点算单官，不计。
@@ -807,30 +850,30 @@ void MainWindow::showCount(GameNode *node, const QJsonObject &resp)
     }
     const double komi = m_tree.komi();
     const double diff = black - (white + komi);
-    const QString areaResult = diff > 0 ? QStringLiteral("黑胜 %1 目").arg(diff) : diff < 0 ? QStringLiteral("白胜 %1 目").arg(-diff) : QStringLiteral("和棋");
+    const QString areaResult = diff > 0 ? T("黑胜 %1 目").arg(diff) : diff < 0 ? T("白胜 %1 目").arg(-diff) : T("和棋");
     const double lead = resp.value("rootInfo").toObject().value("scoreLead").toDouble();
-    const QString rulesName = m_tree.rules() == "japanese" ? QStringLiteral("日本规则") : m_tree.rules() == "korean" ? QStringLiteral("韩国规则")
-                            : m_tree.rules() == "chinese" ? QStringLiteral("中国规则") : m_tree.rules();
-    QString msg = QStringLiteral("数子结果（中国规则）：\n黑 %1 子，白 %2 子，白贴 %3 目\n%4\n").arg(black).arg(white).arg(komi).arg(areaResult);
-    if (deadB || deadW) msg += QStringLiteral("（判为死子：黑 %1 个，白 %2 个，已算给对方）\n").arg(deadB).arg(deadW);
-    if (unsure) msg += QStringLiteral("还有 %1 个点归属不明（单官或未下完的地方），没计入。\n").arg(unsure);
-    msg += QStringLiteral("\nKataGo 按%1估计：%2 领先 %3 目").arg(rulesName, lead >= 0 ? QStringLiteral("黑") : QStringLiteral("白")).arg(qAbs(lead), 0, 'f', 1);
+    const QString rulesName = m_tree.rules() == "japanese" ? T("日本规则") : m_tree.rules() == "korean" ? T("韩国规则")
+                            : m_tree.rules() == "chinese" ? T("中国规则") : m_tree.rules();
+    QString msg = T("数子结果（中国规则）：\n黑 %1 子，白 %2 子，白贴 %3 目\n%4\n").arg(black).arg(white).arg(komi).arg(areaResult);
+    if (deadB || deadW) msg += T("（判为死子：黑 %1 个，白 %2 个，已算给对方）\n").arg(deadB).arg(deadW);
+    if (unsure) msg += T("还有 %1 个点归属不明（单官或未下完的地方），没计入。\n").arg(unsure);
+    msg += T("\nKataGo 按%1估计：%2 领先 %3 目").arg(rulesName, lead >= 0 ? T("黑") : T("白")).arg(qAbs(lead), 0, 'f', 1);
 
     const bool inGame = m_aiColor != Stone::Empty;
     if (inGame || m_tree.result.isEmpty()) {
-        msg += QStringLiteral("\n\n要结束对局并记录这个结果吗？");
-        if (QMessageBox::question(this, QStringLiteral("点目"), msg) == QMessageBox::Yes) {
+        msg += T("\n\n要结束对局并记录这个结果吗？");
+        if (QMessageBox::question(this, T("点目"), msg) == QMessageBox::Yes) {
             m_tree.result = diff > 0 ? QStringLiteral("B+%1").arg(diff) : diff < 0 ? QStringLiteral("W+%1").arg(-diff) : QStringLiteral("0");
             m_aiColor = Stone::Empty;
             m_aiQueryId.clear();
-            setWindowTitle(QStringLiteral("NanoGo 围棋 - 对局已结束"));
+            setWindowTitle(T("NanoGo 围棋 - 对局已结束"));
             autosave();
             refreshInfo();
         } else if (inGame) {
-            statusBar()->showMessage(QStringLiteral("对局继续：落子后 AI 接着下"), 5000);
+            statusBar()->showMessage(T("对局继续：落子后 AI 接着下"), 5000);
         }
     } else {
-        QMessageBox::information(this, QStringLiteral("点目"), msg);
+        QMessageBox::information(this, T("点目"), msg);
     }
     Q_UNUSED(node);
 }
@@ -840,7 +883,7 @@ void MainWindow::refreshReference()
     const int n = m_tree.boardSize();
     const GameNode *cur = m_tree.current();
     const bool blackToPlay = m_tree.toPlay() == Stone::Black;
-    auto colorName = [](Stone s) { return s == Stone::Black ? QStringLiteral("黑") : QStringLiteral("白"); };
+    auto colorName = [](Stone s) { return s == Stone::Black ? T("黑") : T("白"); };
 
     // 上一手和 AI 推荐的比较
     QString last;
@@ -852,9 +895,9 @@ void MainWindow::refreshReference()
             const QJsonObject best = infos.first().toObject();
             const QString bestMove = best.value("move").toString();
             const double bestLead = best.value("scoreLead").toDouble();
-            last = QStringLiteral("上一手 %1 %2").arg(colorName(cur->move.color), played);
+            last = T("上一手 %1 %2").arg(colorName(cur->move.color), played);
             if (bestMove.compare(played, Qt::CaseInsensitive) == 0) {
-                last += QStringLiteral("：<b style='color:#2a7'>和 AI 推荐一致</b>");
+                last += T("：<b style='color:#2a7'>和 AI 推荐一致</b>");
             } else {
                 double loss = -1;
                 for (const auto &v : infos) {
@@ -865,10 +908,10 @@ void MainWindow::refreshReference()
                 }
                 if (loss < 0 && cur->analysis.valid) // 不在候选里：用这一手之后的局面估算
                     loss = moverBlack ? bestLead - cur->analysis.scoreLeadBlack : cur->analysis.scoreLeadBlack - bestLead;
-                last += QStringLiteral("，AI 推荐 <b>%1</b>").arg(bestMove);
+                last += T("，AI 推荐 <b>%1</b>").arg(bestMove);
                 if (loss >= 0) {
                     const QString col = loss < 1 ? "#2a7" : loss < 3 ? "#b90" : "#c33";
-                    last += QStringLiteral("，<span style='color:%1'>损失约 %2 目</span>").arg(col).arg(qMax(0.0, loss), 0, 'f', 1);
+                    last += T("，<span style='color:%1'>损失约 %2 目</span>").arg(col).arg(qMax(0.0, loss), 0, 'f', 1);
                 }
             }
         }
@@ -880,7 +923,7 @@ void MainWindow::refreshReference()
     m_refList->clear();
     const QJsonObject raw = cur->analysis.raw;
     if (!raw.contains("moveInfos")) {
-        auto *it = new QListWidgetItem(QStringLiteral("点这里（或按 V）计算这一手的参考图"), m_refList);
+        auto *it = new QListWidgetItem(T("点这里（或按 V）计算这一手的参考图"), m_refList);
         it->setData(Qt::UserRole, "__compute__");
         return;
     }
@@ -898,8 +941,8 @@ void MainWindow::refreshReference()
         QStringList pv;
         for (const auto &p : mi.value("pv").toArray()) pv << p.toString();
         QString pvText = pv.mid(0, 10).join(' ');
-        if (pv.size() > 10) pvText += " …";
-        auto *it = new QListWidgetItem(QStringLiteral("%1. %2  胜率 %3%  %4%5 目  （算 %6 次）\n    变化：%7")
+        if (pv.size() > 10) pvText += T(" …");
+        auto *it = new QListWidgetItem(T("%1. %2  胜率 %3%  %4%5 目  （算 %6 次）\n    变化：%7")
                                            .arg(row + 1).arg(move).arg(wr * 100, 0, 'f', 1)
                                            .arg(lead >= 0 ? "+" : "").arg(lead, 0, 'f', 1)
                                            .arg(mi.value("visits").toInt()).arg(pvText), m_refList);
