@@ -10,6 +10,9 @@ public:
     bool showCandidates() const { return m_showCandidates; }
     void setShowOwnership(bool on) { m_showOwnership = on; update(); }
     bool showOwnership() const { return m_showOwnership; }
+    // 固定显示一条参考图（变化图），空列表 = 不显示
+    void setPinnedPv(const QStringList &pv) { m_pinnedPv = pv; update(); }
+    QStringList pinnedPv() const { return m_pinnedPv; }
 
     static QString toGtp(int x, int y, int size);
     static bool fromGtp(const QString &s, int size, int *x, int *y);
@@ -34,4 +37,5 @@ private:
     QPoint m_hover{-1, -1};
     bool m_showCandidates = true;
     bool m_showOwnership = false;
+    QStringList m_pinnedPv;
 };

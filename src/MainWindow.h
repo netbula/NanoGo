@@ -10,6 +10,7 @@ class BoardWidget;
 class QLabel;
 class QPlainTextEdit;
 class QAction;
+class QListWidget;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -43,6 +44,7 @@ private:
     void positionChanged();
     void requestAnalysis();
     void refreshInfo();
+    void refreshReference();
     QJsonObject buildQuery() const;
 
     AppSettings m_settings;
@@ -51,6 +53,9 @@ private:
     BoardWidget *m_board;
     QLabel *m_gameInfo, *m_analysisInfo, *m_engineStatus;
     QPlainTextEdit *m_log, *m_comment;
+    QListWidget *m_refList;
+    QLabel *m_lastMoveRef;
+    QString m_pinnedMove;  // 右侧选中的参考图第一手
     QAction *m_analyzeAct, *m_candAct, *m_ownAct;
     QString m_queryId;
     GameNode *m_queryNode = nullptr;

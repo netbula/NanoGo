@@ -18,6 +18,7 @@
 #include <QGroupBox>
 #include <QJsonArray>
 #include <QLabel>
+#include <QListWidget>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -107,6 +108,31 @@ void MainWindow::buildUi()
     m_analysisInfo->setFont(big);
     al->addWidget(m_analysisInfo);
     v->addWidget(anaBox);
+
+    auto *refBox = new QGroupBox(QStringLiteral("参考图（AI 推荐）"), side);
+    auto *rl = new QVBoxLayout(refBox);
+    m_lastMoveRef = new QLabel(refBox);
+    m_lastMoveRef->setWordWrap(true);
+    m_lastMoveRef->setTextFormat(Qt::RichText);
+    rl->addWidget(m_lastMoveRef);
+    m_refList = new QListWidget(refBox);
+    m_refList->setWordWrap(true);
+    m_refList->setToolTip(QStringLiteral("点一下在棋盘上显示这条变化，再点一下取消"));
+    rl->addWidget(m_refList);
+    connect(m_refList, &QListWidget::itemClicked, this, [this](QListWidgetItem *it) {
+        const QString move = it->data(Qt::UserRole).toString();
+        if (move == "__compute__") { sendSideQuery(0, 400); it->setText(QStringLiteral("计算中…")); return; }
+        if (move.isEmpty()) return;
+        if (m_pinnedMove == move) {
+            m_pinnedMove.clear();
+            m_refList->clearSelection();
+            m_board->setPinnedPv({});
+        } else {
+            m_pinnedMove = move;
+            m_board->setPinnedPv(it->data(Qt::UserRole + 1).toStringList());
+        }
+    });
+    v->addWidget(refBox, 2);
 
     auto *cBox = new QGroupBox(QStringLiteral("注释"), side);
     auto *cl = new QVBoxLayout(cBox);
@@ -211,6 +237,10 @@ void MainWindow::buildUi()
         if (on && !m_analyzeAct->isChecked() && !m_tree.current()->analysis.raw.contains("ownership")) sendSideQuery(0, 200);
     });
     ana->addSeparator();
+    QAction *refA = ana->addAction(QStringLiteral("参考图（AI 推荐的下法）"), QKeySequence(Qt::Key_V), this, [this] {
+        if (!m_tree.current()->analysis.raw.contains("moveInfos")) sendSideQuery(0, 400);
+        else if (m_refList->count() > 0) m_refList->itemClicked(m_refList->item(0)), m_refList->setCurrentRow(0);
+    });
     QAction *countA = ana->addAction(QStringLiteral("点目 / 结束对局"), QKeySequence(Qt::CTRL | Qt::Key_E), this, &MainWindow::countScore);
     ana->addSeparator();
     ana->addAction(QStringLiteral("重启引擎"), this, &MainWindow::restartEngine);
@@ -239,6 +269,7 @@ void MainWindow::buildUi()
     tb->addAction(m_analyzeAct);
     tb->addAction(m_candAct);
     tb->addAction(m_ownAct);
+    tb->addAction(refA);
     tb->addSeparator();
     tb->addAction(countA);
 }
@@ -493,13 +524,16 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
 void MainWindow::positionChanged()
 {
     autosave();
+    m_pinnedMove.clear();
+    m_board->setPinnedPv({});
     m_comment->blockSignals(true);
     m_comment->setPlainText(m_tree.current()->comment);
     m_comment->blockSignals(false);
     m_board->update();
     refreshInfo();
     requestAnalysis();
-    if (m_ownAct->isChecked() && !m_analyzeAct->isChecked() && !m_tree.current()->analysis.raw.contains("ownership")) {
+    // 没开连续分析时，每个局面也快速算一次（约 200 次），用于参考图、上一手评价和形势
+    if (!m_analyzeAct->isChecked() && !m_tree.current()->analysis.raw.contains("moveInfos")) {
         if (!m_ownQueryId.isEmpty()) { m_engine->terminate(m_ownQueryId); m_side.remove(m_ownQueryId); }
         sendSideQuery(0, 200);
     }
@@ -605,6 +639,7 @@ void MainWindow::newAiGame()
 
 void MainWindow::refreshInfo()
 {
+    refreshReference();
     const GameNode *cur = m_tree.current();
     const int moveNo = cur->depth();
     const QString toPlay = m_tree.toPlay() == Stone::Black ? QStringLiteral("黑") : QStringLiteral("白");
@@ -798,4 +833,82 @@ void MainWindow::showCount(GameNode *node, const QJsonObject &resp)
         QMessageBox::information(this, QStringLiteral("点目"), msg);
     }
     Q_UNUSED(node);
+}
+
+void MainWindow::refreshReference()
+{
+    const int n = m_tree.boardSize();
+    const GameNode *cur = m_tree.current();
+    const bool blackToPlay = m_tree.toPlay() == Stone::Black;
+    auto colorName = [](Stone s) { return s == Stone::Black ? QStringLiteral("黑") : QStringLiteral("白"); };
+
+    // 上一手和 AI 推荐的比较
+    QString last;
+    if (cur->move.isValid() && cur->parent && cur->parent->analysis.raw.contains("moveInfos")) {
+        const QJsonArray infos = cur->parent->analysis.raw.value("moveInfos").toArray();
+        const bool moverBlack = cur->move.color == Stone::Black;
+        const QString played = BoardWidget::toGtp(cur->move.x, cur->move.y, n);
+        if (!infos.isEmpty()) {
+            const QJsonObject best = infos.first().toObject();
+            const QString bestMove = best.value("move").toString();
+            const double bestLead = best.value("scoreLead").toDouble();
+            last = QStringLiteral("上一手 %1 %2").arg(colorName(cur->move.color), played);
+            if (bestMove.compare(played, Qt::CaseInsensitive) == 0) {
+                last += QStringLiteral("：<b style='color:#2a7'>和 AI 推荐一致</b>");
+            } else {
+                double loss = -1;
+                for (const auto &v : infos) {
+                    const QJsonObject mi = v.toObject();
+                    if (mi.value("move").toString().compare(played, Qt::CaseInsensitive) == 0) {
+                        loss = moverBlack ? bestLead - mi.value("scoreLead").toDouble() : mi.value("scoreLead").toDouble() - bestLead;
+                    }
+                }
+                if (loss < 0 && cur->analysis.valid) // 不在候选里：用这一手之后的局面估算
+                    loss = moverBlack ? bestLead - cur->analysis.scoreLeadBlack : cur->analysis.scoreLeadBlack - bestLead;
+                last += QStringLiteral("，AI 推荐 <b>%1</b>").arg(bestMove);
+                if (loss >= 0) {
+                    const QString col = loss < 1 ? "#2a7" : loss < 3 ? "#b90" : "#c33";
+                    last += QStringLiteral("，<span style='color:%1'>损失约 %2 目</span>").arg(col).arg(qMax(0.0, loss), 0, 'f', 1);
+                }
+            }
+        }
+    }
+    m_lastMoveRef->setText(last);
+    m_lastMoveRef->setVisible(!last.isEmpty());
+
+    // 当前局面的推荐下法
+    m_refList->clear();
+    const QJsonObject raw = cur->analysis.raw;
+    if (!raw.contains("moveInfos")) {
+        auto *it = new QListWidgetItem(QStringLiteral("点这里（或按 V）计算这一手的参考图"), m_refList);
+        it->setData(Qt::UserRole, "__compute__");
+        return;
+    }
+    const QJsonArray infos = raw.value("moveInfos").toArray();
+    double bestLead = 0;
+    int row = 0;
+    for (const auto &v : infos) {
+        const QJsonObject mi = v.toObject();
+        const QString move = mi.value("move").toString();
+        double wr = mi.value("winrate").toDouble();
+        double lead = mi.value("scoreLead").toDouble();
+        if (!blackToPlay) { wr = 1 - wr; lead = -lead; }
+        if (row == 0) bestLead = lead;
+        if (row > 0 && bestLead - lead > 8) continue; // 太差的不列
+        QStringList pv;
+        for (const auto &p : mi.value("pv").toArray()) pv << p.toString();
+        QString pvText = pv.mid(0, 10).join(' ');
+        if (pv.size() > 10) pvText += " …";
+        auto *it = new QListWidgetItem(QStringLiteral("%1. %2  胜率 %3%  %4%5 目  （算 %6 次）\n    变化：%7")
+                                           .arg(row + 1).arg(move).arg(wr * 100, 0, 'f', 1)
+                                           .arg(lead >= 0 ? "+" : "").arg(lead, 0, 'f', 1)
+                                           .arg(mi.value("visits").toInt()).arg(pvText), m_refList);
+        it->setData(Qt::UserRole, move);
+        it->setData(Qt::UserRole + 1, pv);
+        if (move == m_pinnedMove) {
+            it->setSelected(true);
+            m_board->setPinnedPv(pv); // 分析继续时更新变化
+        }
+        if (++row >= 6) break;
+    }
 }

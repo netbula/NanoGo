@@ -145,8 +145,8 @@ void BoardWidget::paintEvent(QPaintEvent *)
         p.drawEllipse(pointToPixel(last.x, last.y), r * 0.5, r * 0.5);
     }
 
-    // 候选点 + 鼠标悬停时显示变化图
-    if (m_showCandidates && raw.contains("moveInfos")) {
+    // 候选点 + 变化图（鼠标悬停的优先，其次是右侧选中的参考图）
+    if ((m_showCandidates || !m_pinnedPv.isEmpty()) && raw.contains("moveInfos")) {
         const QJsonArray infos = raw.value("moveInfos").toArray();
         int totalVisits = 0;
         for (const auto &v : infos) totalVisits = qMax(totalVisits, v.toObject().value("visits").toInt());
@@ -155,8 +155,9 @@ void BoardWidget::paintEvent(QPaintEvent *)
             QJsonObject mi = v.toObject();
             int x, y;
             if (!fromGtp(mi.value("move").toString(), n, &x, &y)) continue;
-            if (QPoint(x, y) == m_hover) hoverPv = mi.value("pv").toArray();
+            if (m_showCandidates && QPoint(x, y) == m_hover) hoverPv = mi.value("pv").toArray();
         }
+        if (hoverPv.isEmpty()) for (const QString &mv : m_pinnedPv) hoverPv.append(mv);
         if (!hoverPv.isEmpty()) {
             Stone c = m_tree->toPlay();
             int num = 1;
@@ -170,9 +171,9 @@ void BoardWidget::paintEvent(QPaintEvent *)
                 }
                 ++num;
                 c = opponent(c);
-                if (num > 20) break;
+                if (num > 30) break;
             }
-        } else {
+        } else if (m_showCandidates) {
             double bestScore = -1e9;
             for (const auto &v : infos) bestScore = qMax(bestScore, v.toObject().value("scoreLead").toDouble());
             for (const auto &v : infos) {
