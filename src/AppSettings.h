@@ -29,6 +29,11 @@ struct AppSettings {
     static constexpr const char *humanModelSha256 = "637746e44f0efe00ad1245a50aa9bbf0716efe364c43965ead97bd6835d84ab5";
     static constexpr qint64 humanModelBytes = 99066230;
     static QString humanModelPath();
+    // 这个 KataGo 用什么计算：opencl / cuda / tensorrt / eigen（CPU），看不出来返回空。
+    // 运行一次 `katago version` 得出（结果按路径缓存），不靠文件夹名字猜
+    static QString katagoBackend(const QString &katagoPath);
+    static bool isGpuBuild(const QString &katagoPath);
+    static bool isCpuBuild(const QString &katagoPath);
     static bool isHumanModel(const QString &fileName);
 
     QString tuneKey() const { return katagoPath + "|" + modelPath + "|" + gpuName; }

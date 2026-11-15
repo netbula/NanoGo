@@ -1,4 +1,6 @@
 #include "AppSettings.h"
+#include <QHash>
+#include <QProcess>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
@@ -119,7 +121,11 @@ QStringList AppSettings::findKatagoBuilds()
     // 显卡版优先，其次 CPU 版。路径里的文件夹名（如 opencl / cpu）也参与判断
     auto rank = [](const QString &path) {
         const QString p = path.toLower();
-        if (p.contains("opencl")) return 0;
+        const QString b = katagoBackend(path);
+        if (b == "opencl" || p.contains("opencl")) return 0;
+        if (b == "tensorrt") return 1;
+        if (b == "cuda") return 2;
+        if (b == "eigen" && !p.contains("avx2")) return 5;
         if (p.contains("trt") || p.contains("tensorrt")) return 1;
         if (p.contains("cuda")) return 2;
         if (p.contains("eigenavx2") || p.contains("avx2")) return 4;
@@ -155,3 +161,42 @@ void AppSettings::autoDetect()
         }
     }
 }
+
+QString AppSettings::katagoBackend(const QString &katagoPath)
+{
+    static QHash<QString, QString> cache;
+    const QFileInfo fi(katagoPath);
+    if (katagoPath.isEmpty() || !fi.exists()) return {};
+    const QString key = fi.absoluteFilePath() + "|" + QString::number(fi.lastModified().toSecsSinceEpoch());
+    if (cache.contains(key)) return cache.value(key);
+    QString backend;
+    QProcess p;
+    p.setProcessChannelMode(QProcess::MergedChannels);
+    p.start(katagoPath, {"version"});
+    if (p.waitForFinished(15000)) {
+        const QString out = QString::fromLocal8Bit(p.readAll()).toLower();
+        if (out.contains("using opencl")) backend = "opencl";
+        else if (out.contains("using tensorrt")) backend = "tensorrt";
+        else if (out.contains("using cuda")) backend = "cuda";
+        else if (out.contains("using eigen")) backend = "eigen";
+    } else {
+        p.kill();
+        p.waitForFinished(1000);
+    }
+    // 运行不了时退回按文件夹名字判断
+    if (backend.isEmpty()) {
+        const QString l = fi.absoluteFilePath().toLower();
+        if (l.contains("opencl")) backend = "opencl";
+        else if (l.contains("eigen") || l.contains("/cpu")) backend = "eigen";
+    }
+    cache.insert(key, backend);
+    return backend;
+}
+
+bool AppSettings::isGpuBuild(const QString &katagoPath)
+{
+    const QString b = katagoBackend(katagoPath);
+    return b == "opencl" || b == "cuda" || b == "tensorrt";
+}
+
+bool AppSettings::isCpuBuild(const QString &katagoPath) { return katagoBackend(katagoPath) == "eigen"; }

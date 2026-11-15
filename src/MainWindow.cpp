@@ -83,7 +83,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (!m_prepProgress) {
             m_prepProgress = new QProgressDialog(this);
             m_prepProgress->setWindowTitle(T("准备引擎"));
-            if (m_settings.katagoPath.toLower().contains("opencl")) {
+            if (AppSettings::katagoBackend(m_settings.katagoPath) == "opencl") {
                 // 允许人工换显卡：按下后选一块，用它重新调优
                 m_prepProgress->setCancelButtonText(T("换一块显卡…"));
                 connect(m_prepProgress, &QProgressDialog::canceled, this, [this] {
@@ -98,9 +98,10 @@ MainWindow::MainWindow(QWidget *parent)
             m_prepProgress->setAutoReset(false);
             m_prepProgress->show();
         }
-        const QString device = m_settings.katagoPath.toLower().contains("opencl")
-            ? (m_settings.gpuName.isEmpty() ? T("显卡：自动") : T("显卡：%1").arg(m_settings.gpuName))
-            : T("使用 CPU 计算（没有可用的显卡）");
+        // 调优只在显卡上才有，所以看到调优就一定是显卡版
+        const QString device = AppSettings::isCpuBuild(m_settings.katagoPath)
+            ? T("使用 CPU 计算（没有可用的显卡）")
+            : (m_settings.gpuName.isEmpty() ? T("显卡：自动") : T("显卡：%1").arg(m_settings.gpuName));
         m_prepProgress->setLabelText(device + "\n\n" + text + "\n\n" + T("只在第一次使用、换显卡或换模型时进行，完成后自动开始。"));
         m_prepProgress->setValue(qBound(0, pct, 100));
     });
@@ -937,8 +938,7 @@ void MainWindow::onEngineState(KataGoEngine::State s, const QString &msg)
             AppSettings tmp = m_settings; tmp.katagoPath = next; next = tmp.nextKatagoBuild();
         }
         const bool configOrModel = m_engine->failureIsConfigOrModel();
-        const QString curLower = m_settings.katagoPath.toLower();
-        if (next.isEmpty() && !configOrModel && !curLower.contains("eigen") && !curLower.contains("/cpu")) {
+        if (next.isEmpty() && !configOrModel && !AppSettings::isCpuBuild(m_settings.katagoPath)) {
             // 本机没有现成的 CPU 版：自动下载一个
             const EngineBuild cpu = EngineInstaller::cpuBuildForThisPc();
             if (!m_triedBuilds.contains("download:" + cpu.kind)) {
@@ -1719,8 +1719,8 @@ void MainWindow::startEngine()
 {
     AppSettings run = m_settings;
     const auto lower = [](const QString &p) { return p.toLower(); };
-    const bool openclBuild = lower(run.katagoPath).contains("opencl");
-    const bool cpuBuild = lower(run.katagoPath).contains("eigen") || lower(run.katagoPath).contains("/cpu");
+    const bool openclBuild = AppSettings::katagoBackend(run.katagoPath) == "opencl";
+    const bool cpuBuild = AppSettings::isCpuBuild(run.katagoPath);
     m_chosenGpuName.clear();
 
     if (openclBuild) {
