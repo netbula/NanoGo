@@ -44,9 +44,13 @@ private:
     void openSettings();
     void restartEngine();
     void appendLog(const QString &line);
+    void showAbout();
+    bool chooseGpu();
     void bootstrap();    // 第一次使用：缺引擎先下载引擎，缺模型再下载模型，齐了就启动
     void installEngine(const EngineBuild &b, const QString &why);
-    void showDownloadProgress(const QString &what, const QString &text, int percent);
+    void showDownloadProgress(const QString &what, const QString &text, int percent, const QString &title = {});
+    void chooseModel();
+    void openModelChooser(const QList<NetworkInfo> &list);
     void startEngine();  // 先识别硬件、选好引擎和显卡，再启动
     void onPointClicked(int x, int y);
     void onEngineState(KataGoEngine::State s, const QString &msg);
@@ -75,6 +79,10 @@ private:
     ModelUpdater *m_updater;
     EngineInstaller *m_installer;
     bool m_manualCheck = false;
+    bool m_choosingModel = false;       // 正在为“选择模型”读取官方列表
+    bool m_manualModelDownload = false; // 用户手动选的模型正在下载（显示进度框）
+    QList<NetworkInfo> m_officialModels;
+    QAction *m_autoUpdAct = nullptr;
     bool m_firstModel = false;  // 第一次使用、还没有模型：自动下载
     QStringList m_triedBuilds;
     QString m_chosenGpuName;    // 自动选中的显卡名字，用来核对 KataGo 实际用的是不是它
