@@ -23,6 +23,7 @@ set(SOURCES
     src/SettingsDialog.h src/SettingsDialog.cpp
     src/MainWindow.h src/MainWindow.cpp
     src/ModelUpdater.h src/ModelUpdater.cpp
+    src/EngineInstaller.h src/EngineInstaller.cpp
     src/I18n.h src/I18n.cpp
     src/HardwareInfo.h src/HardwareInfo.cpp
 )

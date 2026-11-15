@@ -10,7 +10,6 @@ permissions:
 
 env:
   QT_VERSION: '6.8.3'
-  KATAGO_VERSION: 'v1.18.1'
 
 jobs:
   windows:
@@ -38,26 +37,21 @@ jobs:
         run: |
           $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "dev-$($env:GITHUB_SHA.Substring(0,7))" }
           $dist = "dist/NanoGo"
-          New-Item -ItemType Directory -Force $dist, "$dist/katago", "$dist/models", "$dist/licenses" | Out-Null
+          New-Item -ItemType Directory -Force $dist, "$dist/models", "$dist/licenses" | Out-Null
           Copy-Item build/NanoGo.exe $dist
-          windeployqt --release --no-compiler-runtime "$dist/NanoGo.exe"
+          # 纯 Widgets 程序，不需要软件 OpenGL、D3D/DXC 编译器和 OpenSSL 后端（网络用 Windows 自带的 Schannel）
+          windeployqt --release --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --no-system-dxc-compiler "$dist/NanoGo.exe"
+          Remove-Item -Force -ErrorAction SilentlyContinue "$dist/tls/qopensslbackend.dll", "$dist/opengl32sw.dll", "$dist/dxcompiler.dll", "$dist/dxil.dll", "$dist/D3Dcompiler_47.dll"
           # 微软 VC 运行库（可再分发）放在程序旁边，用户不用另外安装
           Get-ChildItem "$env:VCToolsRedistDir\x64\Microsoft.VC*.CRT\*.dll" | Copy-Item -Destination $dist
-          # 官方 KataGo：OpenCL 版（显卡）+ 两个 CPU 版（AVX2 / 通用）
-          $kg = $env:KATAGO_VERSION
-          foreach ($pair in @(@('opencl','opencl'), @('cpu-avx2','eigenavx2'), @('cpu','eigen'))) {
-            $name = "katago-$kg-$($pair[1])-windows-x64.zip"
-            Invoke-WebRequest "https://github.com/lightvector/KataGo/releases/download/$kg/$name" -OutFile $name
-            Expand-Archive $name -DestinationPath "$dist/katago/$($pair[0])"
-            # 去掉示例里的特殊编译版本，保留 katago.exe 和它的 dll
-            Get-ChildItem "$dist/katago/$($pair[0])" -Filter 'katago*+*.exe' | Remove-Item
-          }
+          # KataGo 引擎和模型都不放进安装包：NanoGo 第一次打开时按本机硬件自动从官方下载
           # 授权文件
           Copy-Item LICENSE, THIRD_PARTY_NOTICES.md $dist
           Copy-Item packaging/README_使用说明.txt $dist
-          Invoke-WebRequest "https://raw.githubusercontent.com/lightvector/KataGo/$kg/LICENSE" -OutFile "$dist/licenses/KataGo-LICENSE.txt"
           Invoke-WebRequest "https://www.gnu.org/licenses/lgpl-3.0.txt" -OutFile "$dist/licenses/Qt-LGPL-3.0.txt"
           Invoke-WebRequest "https://www.gnu.org/licenses/gpl-3.0.txt" -OutFile "$dist/licenses/GPL-3.0.txt"
+          # 打包结果自检：不能带 KataGo
+          if (Test-Path "$dist/katago") { throw "package must not contain katago/" }
           "models are downloaded automatically on first run. 模型会在第一次打开时自动下载。" | Out-File "$dist/models/README.txt" -Encoding utf8
           Remove-Item -Recurse -Force "$dist/data", "$dist/nanogo.ini" -ErrorAction SilentlyContinue
           Compress-Archive -Path $dist -DestinationPath "NanoGo-$ver-windows-x64.zip"

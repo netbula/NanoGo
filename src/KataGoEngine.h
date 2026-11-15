@@ -18,6 +18,8 @@ public:
     void start(const AppSettings &settings);
     void stop();
     State state() const { return m_state; }
+    // 失败原因是配置或模型问题（换引擎也没用），而不是显卡/引擎本身起不来
+    bool failureIsConfigOrModel() const;
     QString deviceName() const { return m_deviceName; }
     QStringList openclDevices() const { return m_devices; }
 
@@ -31,6 +33,8 @@ signals:
     void analysisReceived(const QJsonObject &response);
     void logLine(const QString &line);
     void tuned(int threads);  // 自动测试硬件得出的最佳线程数
+    // 第一次调优 / 测试硬件的进度（按 KataGo 的实际输出计算）；percent < 0 表示结束
+    void prepareProgress(int percent, const QString &text);
 
 private:
     void setState(State s, const QString &msg);
@@ -55,6 +59,10 @@ private:
     int m_nextId = 0;
     bool m_stopping = false;
     bool m_benchmarking = false;
+    bool m_tuneFailed = false;
+    void parseProgress(const QString &line);
+    int m_tunePhases = 0;      // 显卡调优已经开始的项目数
+    int m_benchTotal = 0, m_benchDone = 0;
     AppSettings m_settings;
     QStringList m_benchLines;
 };

@@ -100,6 +100,7 @@ void KataGoEngine::launchAnalysis()
 void KataGoEngine::runBenchmark()
 {
     m_benchmarking = true;
+    m_tuneFailed = false;
     m_benchLines.clear();
     const QString cfg = writeConfig(m_settings, true);
     QString threads;
@@ -122,6 +123,9 @@ void KataGoEngine::runBenchmark()
     connect(m_proc, &QProcess::errorOccurred, this, &KataGoEngine::onError);
     setState(State::Starting, T("正在自动测试本机硬件，找出最合适的设置（只在第一次或更换引擎、模型时进行，约 1 到 3 分钟）…"));
     emit logLine(T("—— 自动测试硬件：线程数 %1 ——").arg(threads));
+    m_benchTotal = threads.count(',') + 1;
+    m_benchDone = 0;
+    emit prepareProgress(0, T("正在加载模型，准备测试本机硬件…"));
     m_proc->start(m_settings.katagoPath, {"benchmark", "-model", m_settings.modelPath, "-config", cfg, "-v", "250", "-t", threads});
 }
 
@@ -139,6 +143,7 @@ void KataGoEngine::onBenchmarkOutput()
         if (m_recentErr.size() > 40) m_recentErr.removeFirst();
         if (line.contains("Performing autotuning"))
             setState(State::Starting, T("第一次在这块显卡上运行该模型，正在调优，大约需要几分钟，请稍候…"));
+        parseProgress(line);
     }
 }
 
@@ -171,6 +176,7 @@ void KataGoEngine::onBenchmarkFinished()
     } else {
         // 测试没得出结果：不打扰用户，先用默认线程数启动分析；分析也起不来时再报具体原因
         emit logLine(T("—— 自动测试硬件没有得出结果，先用默认设置启动 ——"));
+        m_tuneFailed = true;
         launchAnalysis();
     }
 }
@@ -261,12 +267,63 @@ void KataGoEngine::onStderr()
         auto u = usingRe.match(line);
         if (u.hasMatch()) m_deviceName = T("%1 号显卡 %2").arg(u.captured(1), u.captured(2).trimmed());
         if (line.contains("Started, ready to begin handling requests")) {
-            setState(State::Ready, m_deviceName.isEmpty() ? T("引擎已就绪")
-                                                          : T("引擎已就绪，使用 %1").arg(m_deviceName));
+            QString ready = m_deviceName.isEmpty() ? T("引擎已就绪") : T("引擎已就绪，使用 %1").arg(m_deviceName);
+            if (m_tuneFailed) ready += T("（硬件测试未完成，正在用默认设置）");
+            setState(State::Ready, ready);
         } else if (m_state == State::Starting && line.contains("Performing autotuning")) {
             setState(State::Starting, T("第一次在这块显卡上运行该模型，正在调优，大约需要几分钟，请稍候…"));
         }
+        if (m_state == State::Starting) parseProgress(line);
     }
+}
+
+// KataGo 的 OpenCL 调优会依次测试几项内核（"Tuning xGemm for convolutions" 等），
+// 每项输出 "Tuning i/n ..."；benchmark 每测完一种线程数输出一行 "numSearchThreads = N: ..."
+void KataGoEngine::parseProgress(const QString &line)
+{
+    static const QRegularExpression stepRe(QStringLiteral("^Tuning\\s+(\\d+)\\s*/\\s*(\\d+)"));
+    static const QRegularExpression phaseRe(QStringLiteral("^Tuning\\s+[A-Za-z]"));
+    static const QRegularExpression benchRe(QStringLiteral("numSearchThreads\\s*=\\s*\\d+\\s*:.*visits/s"));
+    constexpr int kExpectedPhases = 6; // 大致项目数，只用来估算；实际更多时自动放宽
+    if (line.contains("Performing autotuning")) {
+        m_tunePhases = 0;
+        emit prepareProgress(0, T("第 1 步：为这块显卡调优（只做一次）"));
+        return;
+    }
+    if (phaseRe.match(line).hasMatch() && !stepRe.match(line).hasMatch()) {
+        ++m_tunePhases;
+        return;
+    }
+    const auto s = stepRe.match(line);
+    if (s.hasMatch() && m_tunePhases > 0) {
+        const double frac = qBound(0.0, (s.captured(1).toDouble() + 1) / qMax(1.0, s.captured(2).toDouble()), 1.0);
+        const int total = qMax(kExpectedPhases, m_tunePhases + 1);
+        const int pct = qMin(99, int(((m_tunePhases - 1) + frac) * 100 / total));
+        emit prepareProgress(pct, T("第 1 步：为这块显卡调优（只做一次）\n第 %1 项，已测试 %2 / %3 种参数")
+                                      .arg(m_tunePhases).arg(s.captured(1).toInt() + 1).arg(s.captured(2)));
+        return;
+    }
+    if (line.contains("Done tuning") || line.contains("Wrote tuning file")) {
+        emit prepareProgress(100, T("显卡调优完成"));
+        return;
+    }
+    if (m_benchmarking && benchRe.match(line).hasMatch() && m_benchTotal > 0) {
+        ++m_benchDone;
+        emit prepareProgress(qMin(100, m_benchDone * 100 / m_benchTotal),
+                             T("第 2 步：测试最合适的线程数（%1 / %2）").arg(m_benchDone).arg(m_benchTotal));
+    }
+}
+
+bool KataGoEngine::failureIsConfigOrModel() const
+{
+    const QString all = m_recentErr.join('\n');
+    if (all.contains("Could not find key")) return true;
+    if (all.contains("config", Qt::CaseInsensitive) && all.contains("exception", Qt::CaseInsensitive)
+        && !all.contains("OpenCL", Qt::CaseInsensitive) && !all.contains("CUDA", Qt::CaseInsensitive)) return true;
+    if (all.contains("exception", Qt::CaseInsensitive) && all.contains("model", Qt::CaseInsensitive)
+        && (all.contains("open", Qt::CaseInsensitive) || all.contains("gz", Qt::CaseInsensitive))
+        && !all.contains("OpenCL", Qt::CaseInsensitive)) return true;
+    return false;
 }
 
 QString KataGoEngine::explainFailure() const

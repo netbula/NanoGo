@@ -31,7 +31,7 @@
 ## 下载使用（推荐）
 到 [Releases](../../releases) 下载 `NanoGo-版本号-windows-x64.zip`，解压到普通文件夹，双击 `NanoGo.exe` 即可。
 不需要另外安装任何东西：
-- Qt 运行库、VC 运行库、KataGo 引擎（显卡 OpenCL 版 + 两个 CPU 版）都在压缩包里；
+- Qt 运行库、VC 运行库在压缩包里；KataGo 引擎不打包，第一次打开时按本机硬件从 KataGo 官方 GitHub 下载对应版本（显卡 OpenCL 版，或按 CPU 是否支持 AVX2 选 CPU 版），版本和 SHA-256 写死在程序里校验；
 - 第一次打开自动下载 KataGo 官方最强模型（只下载一次，SHA-256 校验）；
 - 自动识别显卡：自己列出所有显卡，优先选独立显卡、显存大的那块，明确告诉 KataGo，不让它在集成显卡和独立显卡之间猜；没有可用显卡或显卡驱动不支持 OpenCL 时自动改用 CPU 版（按 CPU 是否支持 AVX2 选择）；
 - 自动测速，选出这台电脑最合适的线程数。
@@ -48,17 +48,17 @@ set CMAKE="C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\IDE\Co
 ```
 
 生成的程序在 `build\Release\NanoGo.exe`，Qt 运行库会自动复制到同一目录。`CMakePresets.json` 里的 Qt 路径按你自己的安装位置修改。
-自己编译时，把 KataGo 官方发布的 Windows 版解压到 `katago\opencl`、`katago\cpu` 等子文件夹即可。
+自己编译时不用准备 KataGo，第一次运行会自动下载；也可以自己把 KataGo 官方发布的 Windows 版解压到 `katago\opencl`、`katago\cpu` 等子文件夹。
 
 推送 `v*` 标签时，GitHub Actions（`.github/workflows/release.yml`）会自动编译、打包并发布到 Releases。
 
 ## 文件位置
 - `nanogo.ini`：设置，放在 exe 旁边
-- `data\`：程序生成的 KataGo 配置 `analysis.cfg` 和显卡调优文件
+- `data\`：程序生成的 KataGo 配置、显卡调优文件和日志 `nanogo.log`（遇到问题可以把这个文件发给开发者）
 - 程序不会往“下载”文件夹里写任何东西
 
 ## 硬件自动检测
 - 不针对某一台电脑写死设置。第一次启动（或更换引擎、模型后），NanoGo 会用 KataGo 自带的 benchmark 自动测试，选出这台电脑最合适的搜索线程数，结果记在 `nanogo.ini`。设置里可以“重新测试硬件”，也可以手动指定线程数。
-- 显卡默认“自动”，由 KataGo 自己挑最强的那块（有集成显卡的电脑上，OpenCL 0 号常常是集成显卡）。
+- 显卡默认“自动”：NanoGo 自己列出所有显卡，优先独立显卡、显存大的那块，并核对 KataGo 实际用的是哪块。
 - 引擎按 OpenCL → TensorRT → CUDA → CPU（eigen）的顺序在 `katago` 文件夹里自动寻找；没有独立显卡的电脑放 CPU 版即可。
 - 路径都跟随程序所在位置：从 exe 往上找含 `katago` 或 `models` 文件夹的目录作为根目录，整个文件夹拷到别的电脑也能用。

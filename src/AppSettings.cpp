@@ -135,7 +135,8 @@ void AppSettings::autoDetect()
     }
     if (modelPath.isEmpty() || !QFileInfo::exists(modelPath)) {
         modelPath.clear();
-        const QStringList modelDirs = {modelsDir(), QDir(appDir()).filePath("models"), home + "/Downloads"};
+        // 只在程序自己的 models 文件夹里找；找不到时由首次运行自动下载最强模型
+        const QStringList modelDirs = {modelsDir(), QDir(appDir()).filePath("models")};
         for (const QString &d : modelDirs) {
             QString p = newestMatch(d, {"*.bin.gz"});
             if (!p.isEmpty() && !QFileInfo(p).fileName().contains("human")) { modelPath = p; break; }

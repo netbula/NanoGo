@@ -3,6 +3,7 @@
 #include "GameTree.h"
 #include "KataGoEngine.h"
 #include "ModelUpdater.h"
+#include "EngineInstaller.h"
 #include <QHash>
 #include <QMainWindow>
 
@@ -12,6 +13,7 @@ class QPlainTextEdit;
 class QAction;
 class QListWidget;
 class QProgressDialog;
+class QComboBox;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -26,6 +28,8 @@ private:
     void buildUi();
     void newGame();
     void newAiGame();
+    void swapSides();
+    void setAiVisits(int v);
     void maybeAiMove();
     void sendAiQuery();
     void sendSideQuery(int purpose, int visits);
@@ -39,6 +43,10 @@ private:
     void saveSgf();
     void openSettings();
     void restartEngine();
+    void appendLog(const QString &line);
+    void bootstrap();    // 第一次使用：缺引擎先下载引擎，缺模型再下载模型，齐了就启动
+    void installEngine(const EngineBuild &b, const QString &why);
+    void showDownloadProgress(const QString &what, const QString &text, int percent);
     void startEngine();  // 先识别硬件、选好引擎和显卡，再启动
     void onPointClicked(int x, int y);
     void onEngineState(KataGoEngine::State s, const QString &msg);
@@ -58,12 +66,14 @@ private:
     QListWidget *m_refList;
     QLabel *m_lastMoveRef;
     QString m_pinnedMove;
-    QProgressDialog *m_dlProgress = nullptr;  // 右侧选中的参考图第一手
+    QProgressDialog *m_dlProgress = nullptr;
+    QProgressDialog *m_prepProgress = nullptr; // 第一次调优 / 测试硬件的进度  // 右侧选中的参考图第一手
     QAction *m_analyzeAct, *m_candAct, *m_ownAct;
     QString m_queryId;
     GameNode *m_queryNode = nullptr;
     QString m_sgfPath;
     ModelUpdater *m_updater;
+    EngineInstaller *m_installer;
     bool m_manualCheck = false;
     bool m_firstModel = false;  // 第一次使用、还没有模型：自动下载
     QStringList m_triedBuilds;
@@ -72,6 +82,7 @@ private:
     // 人机对弈
     Stone m_aiColor = Stone::Empty;
     int m_aiVisits = 400;
+    QComboBox *m_strengthBox = nullptr;
     QString m_aiQueryId;
     GameNode *m_aiNode = nullptr;
     bool m_aiPaused = false;
