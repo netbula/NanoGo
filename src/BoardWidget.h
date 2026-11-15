@@ -1,5 +1,6 @@
 #pragma once
 #include "GameTree.h"
+#include <QHash>
 #include <QWidget>
 
 class BoardWidget : public QWidget {
@@ -13,6 +14,8 @@ public:
     // 固定显示一条参考图（变化图），空列表 = 不显示
     void setPinnedPv(const QStringList &pv) { m_pinnedPv = pv; update(); }
     QStringList pinnedPv() const { return m_pinnedPv; }
+    // 坏棋标记：key = y*n+x，value = 1 疑问手 / 2 恶手
+    void setMoveMarks(const QHash<int, int> &marks) { m_moveMarks = marks; update(); }
 
     static QString toGtp(int x, int y, int size);
     static bool fromGtp(const QString &s, int size, int *x, int *y);
@@ -38,4 +41,5 @@ private:
     bool m_showCandidates = true;
     bool m_showOwnership = false;
     QStringList m_pinnedPv;
+    QHash<int, int> m_moveMarks;
 };

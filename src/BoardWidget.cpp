@@ -137,6 +137,18 @@ void BoardWidget::paintEvent(QPaintEvent *)
         }
     }
 
+    // 坏棋标记：棋子右上角的小三角（红 = 恶手，橙 = 疑问手）
+    for (auto it = m_moveMarks.cbegin(); it != m_moveMarks.cend(); ++it) {
+        const int x = it.key() % n, y = it.key() / n;
+        if (b.at(x, y) == Stone::Empty) continue;
+        const QPointF c = pointToPixel(x, y) + QPointF(r * 0.55, -r * 0.55);
+        const double s = qMax(4.0, r * 0.42);
+        QPolygonF tri({c + QPointF(-s, -s * 0.6), c + QPointF(s, -s * 0.6), c + QPointF(0, s)});
+        p.setPen(QPen(Qt::white, 1));
+        p.setBrush(it.value() == 2 ? QColor(220, 50, 50) : QColor(240, 160, 30));
+        p.drawPolygon(tri);
+    }
+
     // 最后一手标记
     const Move &last = m_tree->current()->move;
     if (last.isValid() && !last.isPass()) {

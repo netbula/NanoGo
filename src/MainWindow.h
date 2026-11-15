@@ -3,6 +3,7 @@
 #include "GameTree.h"
 #include "KataGoEngine.h"
 #include "ModelUpdater.h"
+#include "Review.h"
 #include "EngineInstaller.h"
 #include <QHash>
 #include <QMainWindow>
@@ -60,6 +61,19 @@ private:
     void refreshInfo();
     void refreshReference();
     QJsonObject buildQuery() const;
+    QJsonObject buildQueryFor(const QList<GameNode *> &path) const;
+    // 复盘：整盘分析、胜率曲线、坏棋
+    void startReview();
+    void refreshReview();
+    void jumpToMistake(int dir);
+    class WinrateGraph *m_graph = nullptr;
+    QLabel *m_reviewInfo = nullptr;
+    class QPushButton *m_reviewBtn = nullptr;
+    QComboBox *m_reviewVisits = nullptr;
+    QString m_reviewQueryId;
+    QList<GameNode *> m_reviewLine;   // 第 i 个是第 i 手之后的局面（0 = 开局）
+    int m_reviewDone = 0;
+    QList<MoveEval> m_evals;
 
     AppSettings m_settings;
     GameTree m_tree;

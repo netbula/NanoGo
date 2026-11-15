@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 #include "EngineInstaller.h"
 #include "Icons.h"
+#include "WinrateGraph.h"
 #include "ModelChooser.h"
 #include "BoardWidget.h"
 #include "HardwareInfo.h"
@@ -155,7 +156,7 @@ MainWindow::MainWindow(QWidget *parent)
     if (!m_firstModel && m_settings.autoUpdateModel
         && (!m_settings.lastModelCheck.isValid() || m_settings.lastModelCheck.secsTo(QDateTime::currentDateTime()) > 24 * 3600))
         QTimer::singleShot(3000, this, [this] { checkModel(false); });
-    if (qEnvironmentVariableIsSet("NANOGO_SCREENSHOT")) {
+    if (qEnvironmentVariableIsSet("NANOGO_SCREENSHOT") && !qEnvironmentVariableIsSet("NANOGO_AUTOREVIEW")) {
         for (QPoint p : {QPoint(15, 3), QPoint(3, 15), QPoint(16, 15), QPoint(2, 3)}) m_tree.play(p.x(), p.y());
         positionChanged();
         m_analyzeAct->setChecked(true);
@@ -346,8 +347,49 @@ void MainWindow::buildUi()
     ll->addWidget(m_log);
     v->addWidget(logBox, 1);
 
+    // 棋盘下方：胜率曲线 + 复盘按钮
+    auto *reviewPanel = new QWidget(this);
+    auto *rv = new QVBoxLayout(reviewPanel);
+    rv->setContentsMargins(4, 0, 4, 0);
+    auto *rh = new QHBoxLayout;
+    m_reviewBtn = new QPushButton(T("分析整盘棋"), reviewPanel);
+    m_reviewBtn->setToolTip(T("计算每一手的胜率和目差，画出胜率曲线并标出坏棋"));
+    connect(m_reviewBtn, &QPushButton::clicked, this, &MainWindow::startReview);
+    rh->addWidget(m_reviewBtn);
+    m_reviewVisits = new QComboBox(reviewPanel);
+    for (int v : {50, 100, 200, 500, 1000}) m_reviewVisits->addItem(T("每手 %1 次").arg(v), v);
+    m_reviewVisits->setCurrentIndex(1);
+    m_reviewVisits->setToolTip(T("整盘分析时每一手的计算量，越大越准、越慢"));
+    rh->addWidget(m_reviewVisits);
+    auto *prevBad = new QPushButton(T("◀ 上一个坏棋"), reviewPanel);
+    auto *nextBad = new QPushButton(T("下一个坏棋 ▶"), reviewPanel);
+    prevBad->setToolTip(T("跳到上一个恶手或疑问手（PgUp）"));
+    nextBad->setToolTip(T("跳到下一个恶手或疑问手（PgDn）"));
+    connect(prevBad, &QPushButton::clicked, this, [this] { jumpToMistake(-1); });
+    connect(nextBad, &QPushButton::clicked, this, [this] { jumpToMistake(1); });
+    rh->addWidget(prevBad);
+    rh->addWidget(nextBad);
+    m_reviewInfo = new QLabel(reviewPanel);
+    m_reviewInfo->setTextFormat(Qt::RichText);
+    rh->addWidget(m_reviewInfo, 1);
+    rv->addLayout(rh);
+    m_graph = new WinrateGraph(reviewPanel);
+    connect(m_graph, &WinrateGraph::nodeClicked, this, [this](GameNode *n) {
+        if (n == m_tree.current()) return;
+        m_aiPaused = m_aiColor != Stone::Empty;
+        m_tree.setCurrent(n);
+        positionChanged();
+    });
+    rv->addWidget(m_graph, 1);
+    auto *left = new QSplitter(Qt::Vertical, this);
+    left->addWidget(m_board);
+    left->addWidget(reviewPanel);
+    left->setStretchFactor(0, 5);
+    left->setStretchFactor(1, 1);
+    left->setSizes({700, 170});
+
     auto *split = new QSplitter(this);
-    split->addWidget(m_board);
+    split->addWidget(left);
     split->addWidget(side);
     split->setStretchFactor(0, 3);
     split->setStretchFactor(1, 1);
@@ -438,6 +480,10 @@ void MainWindow::buildUi()
         else if (m_refList->count() > 0) m_refList->itemClicked(m_refList->item(0)), m_refList->setCurrentRow(0);
     });
     QAction *countA = ana->addAction(T("点目 / 结束对局"), QKeySequence(Qt::CTRL | Qt::Key_E), this, &MainWindow::countScore);
+    ana->addSeparator();
+    ana->addAction(T("分析整盘棋（胜率曲线、坏棋）"), QKeySequence(Qt::CTRL | Qt::Key_R), this, &MainWindow::startReview);
+    ana->addAction(T("上一个坏棋"), QKeySequence(Qt::Key_PageUp), this, [this] { jumpToMistake(-1); });
+    ana->addAction(T("下一个坏棋"), QKeySequence(Qt::Key_PageDown), this, [this] { jumpToMistake(1); });
     ana->addSeparator();
     ana->addAction(T("重启引擎"), this, &MainWindow::restartEngine);
 
@@ -591,6 +637,12 @@ void MainWindow::newGame()
     m_aiQueryId.clear();
     m_aiNode = nullptr;
     m_engine->terminateAll();
+    // 换棋谱前清掉还指向旧棋谱节点的查询
+    m_reviewQueryId.clear();
+    m_reviewLine.clear();
+    m_side.clear();
+    m_ownQueryId.clear();
+    if (m_reviewBtn) m_reviewBtn->setText(T("分析整盘棋"));
     m_queryId.clear();
     m_queryNode = nullptr;
     m_tree.adoptRoot(new GameNode, 19);
@@ -614,6 +666,12 @@ void MainWindow::openSgf()
     m_aiColor = Stone::Empty;
     m_aiQueryId.clear();
     m_engine->terminateAll();
+    // 换棋谱前清掉还指向旧棋谱节点的查询
+    m_reviewQueryId.clear();
+    m_reviewLine.clear();
+    m_side.clear();
+    m_ownQueryId.clear();
+    if (m_reviewBtn) m_reviewBtn->setText(T("分析整盘棋"));
     m_queryId.clear();
     m_queryNode = nullptr;
     QString err;
@@ -719,6 +777,9 @@ void MainWindow::onEngineState(KataGoEngine::State s, const QString &msg)
         }
     }
     if (s == KataGoEngine::State::Ready) { m_aiQueryId.clear(); m_triedBuilds.clear(); maybeAiMove(); }
+    // 开发用：NANOGO_AUTOREVIEW=1 时引擎一就绪就整盘分析（自动测试用）
+    if (s == KataGoEngine::State::Ready && qEnvironmentVariableIsSet("NANOGO_AUTOREVIEW") && m_reviewQueryId.isEmpty() && m_reviewDone == 0)
+        startReview();
     if (s == KataGoEngine::State::Failed) {
         // 硬件自动适配：当前引擎起不来（例如没有可用显卡），自动换下一个可用的引擎（显卡版 → CPU 版）。
         // 配置或模型出错时换引擎没有用，也不能因此把能用的显卡版降级，直接报告原因。
@@ -756,7 +817,9 @@ void MainWindow::onEngineState(KataGoEngine::State s, const QString &msg)
     }
 }
 
-QJsonObject MainWindow::buildQuery() const
+QJsonObject MainWindow::buildQuery() const { return buildQueryFor(m_tree.pathToCurrent()); }
+
+QJsonObject MainWindow::buildQueryFor(const QList<GameNode *> &path) const
 {
     const int n = m_tree.boardSize();
     QJsonObject q;
@@ -770,7 +833,6 @@ QJsonObject MainWindow::buildQuery() const
     q["reportDuringSearchEvery"] = 0.4;
     q["analyzeTurns"] = QJsonArray();
 
-    const QList<GameNode *> path = m_tree.pathToCurrent();
     bool midSetup = false;
     for (int i = 1; i < path.size(); ++i)
         if (!path[i]->addBlack.isEmpty() || !path[i]->addWhite.isEmpty()) midSetup = true;
@@ -869,6 +931,30 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
         return;
     }
     const QString rid = resp.value("id").toString();
+    if (!m_reviewQueryId.isEmpty() && rid == m_reviewQueryId) {
+        if (resp.value("isDuringSearch").toBool()) return;
+        const int turn = resp.value("turnNumber").toInt(-1);
+        if (turn >= 0 && turn < m_reviewLine.size()) {
+            const QJsonObject root = resp.value("rootInfo").toObject();
+            Analysis &a = m_reviewLine[turn]->analysis;
+            if (!a.valid || a.visits <= root.value("visits").toInt()) {
+                a.valid = true;
+                a.winrateBlack = root.value("winrate").toDouble();
+                a.scoreLeadBlack = root.value("scoreLead").toDouble();
+                a.visits = root.value("visits").toInt();
+                a.raw = resp;
+            }
+        }
+        if (++m_reviewDone >= m_reviewLine.size()) {
+            m_reviewQueryId.clear();
+            m_reviewBtn->setText(T("分析整盘棋"));
+            statusBar()->showMessage(T("整盘分析完成"), 5000);
+            autosave();
+        }
+        refreshInfo();
+        m_board->update();
+        return;
+    }
     if (m_side.contains(rid)) {
         if (resp.value("isDuringSearch").toBool()) return;
         const SideQuery sq = m_side.take(rid);
@@ -1017,9 +1103,112 @@ void MainWindow::newAiGame()
     positionChanged();
 }
 
+void MainWindow::startReview()
+{
+    if (!m_reviewQueryId.isEmpty()) {
+        // 再按一次：停止
+        m_engine->terminate(m_reviewQueryId);
+        m_reviewQueryId.clear();
+        m_reviewBtn->setText(T("分析整盘棋"));
+        statusBar()->showMessage(T("已停止整盘分析"), 4000);
+        refreshInfo();
+        return;
+    }
+    if (m_engine->state() != KataGoEngine::State::Ready) {
+        statusBar()->showMessage(T("引擎还没就绪，请稍候再试"), 3000);
+        return;
+    }
+    const QList<GameNode *> line = m_tree.mainLineFromCurrentPath();
+    QList<GameNode *> moveNodes{line.first()};
+    for (int i = 1; i < line.size(); ++i) {
+        if (!line[i]->addBlack.isEmpty() || !line[i]->addWhite.isEmpty()) {
+            QMessageBox::information(this, T("分析整盘棋"), T("这盘棋中途有摆子，暂时不能整盘分析，可以逐手打开分析。"));
+            return;
+        }
+        if (line[i]->move.isValid()) moveNodes << line[i];
+    }
+    if (moveNodes.size() < 2) {
+        statusBar()->showMessage(T("还没有着手可以分析"), 3000);
+        return;
+    }
+    QJsonObject q = buildQueryFor(moveNodes);
+    q.remove("reportDuringSearchEvery");
+    q["maxVisits"] = m_reviewVisits->currentData().toInt();
+    QJsonArray turns;
+    for (int t = 0; t < moveNodes.size(); ++t) turns.append(t);
+    q["analyzeTurns"] = turns;
+    m_reviewLine = moveNodes;
+    m_reviewDone = 0;
+    m_reviewQueryId = m_engine->analyze(q);
+    if (m_reviewQueryId.isEmpty()) return;
+    m_reviewBtn->setText(T("停止分析"));
+    refreshInfo();
+}
+
+void MainWindow::refreshReview()
+{
+    if (!m_graph) return;
+    const QList<GameNode *> line = m_tree.mainLineFromCurrentPath();
+    m_evals = Review::evaluate(line);
+    m_graph->setData(line, m_evals, m_tree.current(), m_tree.boardSize());
+
+    int bad[2][2] = {{0, 0}, {0, 0}};
+    int known = 0;
+    for (const MoveEval &e : m_evals) {
+        if (!e.known) continue;
+        ++known;
+        if (e.severity > 0) ++bad[e.color == Stone::Black ? 0 : 1][e.severity - 1];
+    }
+    QString info;
+    if (!m_reviewQueryId.isEmpty())
+        info = T("正在分析… %1 / %2").arg(m_reviewDone).arg(m_reviewLine.size()) + " · ";
+    if (known > 0)
+        info += T("黑：<b style='color:#d33'>恶手 %1</b> · <b style='color:#d80'>疑问手 %2</b>　白：<b style='color:#d33'>恶手 %3</b> · <b style='color:#d80'>疑问手 %4</b>")
+                    .arg(bad[0][1]).arg(bad[0][0]).arg(bad[1][1]).arg(bad[1][0]);
+    m_reviewInfo->setText(info);
+
+    // 棋盘上标出当前局面里还在的坏棋
+    QHash<int, int> marks;
+    const int n = m_tree.boardSize();
+    const QList<GameNode *> path = m_tree.pathToCurrent();
+    for (const MoveEval &e : m_evals) {
+        if (!e.known || e.severity == 0 || e.node->move.isPass() || !path.contains(e.node)) continue;
+        const Move &mv = e.node->move;
+        if (m_tree.board().at(mv.x, mv.y) == mv.color) marks.insert(mv.y * n + mv.x, e.severity);
+    }
+    m_board->setMoveMarks(marks);
+}
+
+void MainWindow::jumpToMistake(int dir)
+{
+    const QList<GameNode *> line = m_tree.mainLineFromCurrentPath();
+    const int cur = line.indexOf(m_tree.current());
+    QList<int> idx;
+    for (const MoveEval &e : m_evals) if (e.known && e.severity > 0) idx << e.moveNo;
+    if (idx.isEmpty()) {
+        statusBar()->showMessage(T("还没有找到坏棋：先点“分析整盘棋”"), 4000);
+        return;
+    }
+    int target = -1;
+    if (dir > 0) { for (int i : idx) if (i > cur) { target = i; break; } }
+    else { for (int k = idx.size() - 1; k >= 0; --k) if (idx[k] < cur) { target = idx[k]; break; } }
+    if (target < 0 || target >= line.size()) {
+        statusBar()->showMessage(dir > 0 ? T("后面没有坏棋了") : T("前面没有坏棋了"), 3000);
+        return;
+    }
+    m_aiPaused = m_aiColor != Stone::Empty;
+    m_tree.setCurrent(line[target]);
+    positionChanged();
+    const MoveEval &e = m_evals[target - 1];
+    statusBar()->showMessage(T("第 %1 手 %2：损失 %3 目（胜率 %4%）").arg(target)
+                                 .arg(e.severity == 2 ? T("恶手") : T("疑问手"))
+                                 .arg(e.scoreLoss, 0, 'f', 1).arg(e.winLoss * 100, 0, 'f', 1), 8000);
+}
+
 void MainWindow::refreshInfo()
 {
     refreshReference();
+    refreshReview();
     const GameNode *cur = m_tree.current();
     const int moveNo = cur->depth();
     const QString toPlay = m_tree.toPlay() == Stone::Black ? T("黑") : T("白");
