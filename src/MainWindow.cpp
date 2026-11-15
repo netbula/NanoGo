@@ -47,10 +47,11 @@
 
 // AI 强度用一个整数表示：正数 = 每步计算量；负数 = 模仿人类段位（-k = k 级，-(100+d) = d 段）
 static bool isRank(int v) { return v < 0; }
-// -1000 = 职业棋手（KataGo 人类模型按近年职业棋谱学的下法；职业没有按段细分的数据）
+// -(1000+年份) = 某一年的职业棋手（KataGo 人类模型按职业棋谱的年份学习；职业没有按段细分的数据）
+static int proYear(int v) { return v <= -1000 ? -v - 1000 : 0; }
 static QString rankProfile(int v)
 {
-    if (v <= -1000) return QStringLiteral("proyear_2023");
+    if (proYear(v)) return QStringLiteral("proyear_%1").arg(proYear(v));
     return v <= -100 ? QStringLiteral("rank_%1d").arg(-v - 100) : QStringLiteral("rank_%1k").arg(-v);
 }
 static QString rankLabel(int v) { return v <= -100 ? T("%1 段").arg(-v - 100) : T("%1 级").arg(-v); }
@@ -64,10 +65,11 @@ static void fillStrengthBox(QComboBox *box, bool verbose)
     box->insertSeparator(box->count());
     for (int v : {-18, -15, -12, -10, -8, -6, -5, -4, -3, -2, -1, -101, -102, -103, -104, -105, -106, -107, -108, -109}) // 按野狐的段级位：18 级到 9 段
         box->addItem(verbose ? T("像野狐 %1 那样下").arg(rankLabel(v)) : T("野狐 %1").arg(rankLabel(v)), v);
-    box->addItem(verbose ? T("像职业棋手那样下") : T("职业棋手"), -1000);
+    for (int year : {2023, 2015, 2005, 1995, 1985, 1970, 1950, 1930})
+        box->addItem(verbose ? T("像 %1 年的职业棋手那样下").arg(year) : T("职业 %1 年").arg(year), -1000 - year);
 }
 
-static QString strengthText(int v) { return v <= -1000 ? T("职业棋手") : isRank(v) ? T("野狐 %1").arg(rankLabel(v)) : T("每步 %1 次计算").arg(v); }
+static QString strengthText(int v) { return proYear(v) ? T("职业 %1 年").arg(proYear(v)) : isRank(v) ? T("野狐 %1").arg(rankLabel(v)) : T("每步 %1 次计算").arg(v); }
 
 
 MainWindow::MainWindow(QWidget *parent)
