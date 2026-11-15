@@ -1,18 +1,20 @@
 # NanoGo 围棋
 
-一个用 C++ / Qt 6 写的 KataGo 图形界面，支持中文、English、日本語、한국어 四种界面语言（菜单“设置 > 界面语言”），用来复盘、对弈和做死活题。
+一个用 C++ / Qt 6 写的围棋复盘、对弈图形界面，支持中文、English、日本語、한국어 四种界面语言（菜单“设置 > 界面语言”）。
 
-## 当前功能（第二步：程序骨架）
+**NanoGo 的棋力全部来自 [KataGo](https://github.com/lightvector/KataGo)。** 本程序使用 KataGo 官方原版引擎和 [katagotraining.org](https://katagotraining.org/) 的官方模型，未做修改，只是为它们提供界面。NanoGo 与 KataGo 项目没有隶属关系。
+
+## 功能
 - 19 路棋盘，落子、提子、打劫判断
 - 打开 / 保存 SGF 棋谱（自动识别 UTF-8 和 GBK 编码），支持变化分支
 - 通过 KataGo analysis 协议实时分析：胜率、领先目数、候选点（悬停看变化图）、形势判断
-- 自动寻找 `C:\dev\NanoGo\katago` 里的 KataGo 引擎（优先 OpenCL 版）和模型（优先 zhizi），不依赖 KaTrain
+- 第一次打开自动下载 KataGo 引擎和模型，自动识别显卡、调优、测速（都有进度条）
 - 引擎出错时给出中文说明，并可直接打开设置
 - 状态栏显示正在使用哪块显卡
-- 自动跟踪官方最强模型：每天从 katagotraining.org 读取模型列表，按评分可信下限挑出最强的，下载到 `C:\dev\NanoGo\models`（校验 SHA-256）并自动切换；菜单“设置 > 检查模型更新…”可手动检查
+- 自动跟踪官方最强模型：每天从 katagotraining.org 读取模型列表，按评分可信下限挑出最强的，下载到程序旁边的 `models` 文件夹（校验 SHA-256）并自动切换；也可以在“设置 > 选择模型…”里自己挑任意官方模型（最强只是默认）
 - 参考图面板：列出 AI 推荐的几手（胜率、目差、变化），点一下在棋盘上用数字显示整条变化；并评价上一手和 AI 推荐差多少目
 - 自动保存：每走一步都保存到 `data\autosave.sgf`，重新打开时恢复棋局、位置和人机对弈状态
-- 人机对弈（基础版）：选执黑或执白、让子 0 到 9 子、AI 每步计算量；双方停一手结束，AI 大劣时认输
+- 人机对弈：选执黑或执白、让子 0 到 9 子；对局中随时“交换黑白”、随时调整“AI 强度”；双方停一手后数子，AI 大劣时认输
 
 ## 快捷键
 | 按键 | 作用 |
@@ -25,6 +27,7 @@
 | T | 显示 / 隐藏形势 |
 | Ctrl+P | 停一手 |
 | Ctrl+G | 人机对弈 |
+| Ctrl+T | 交换黑白（和 AI 互换执子颜色） |
 | Ctrl+E | 点目 / 结束对局 |
 | V | 参考图：在棋盘上显示 AI 推荐的第一条变化 |
 
@@ -39,7 +42,7 @@
 授权：NanoGo 本身是 MIT 许可（见 `LICENSE`），第三方组件见 `THIRD_PARTY_NOTICES.md`。
 
 ## 编译（Windows）
-需要：Visual Studio 2026（含 C++ 桌面开发）、Qt 6.8.3 msvc2022_64（装在 `C:\dev\Qt`）。
+需要：Visual Studio 2022 或更新版本（含 C++ 桌面开发）、Qt 6.8.x msvc2022_64。
 
 ```bat
 set CMAKE="C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
@@ -60,5 +63,11 @@ set CMAKE="C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\IDE\Co
 ## 硬件自动检测
 - 不针对某一台电脑写死设置。第一次启动（或更换引擎、模型后），NanoGo 会用 KataGo 自带的 benchmark 自动测试，选出这台电脑最合适的搜索线程数，结果记在 `nanogo.ini`。设置里可以“重新测试硬件”，也可以手动指定线程数。
 - 显卡默认“自动”：NanoGo 自己列出所有显卡，优先独立显卡、显存大的那块，并核对 KataGo 实际用的是哪块。
-- 引擎按 OpenCL → TensorRT → CUDA → CPU（eigen）的顺序在 `katago` 文件夹里自动寻找；没有独立显卡的电脑放 CPU 版即可。
+- 引擎按 OpenCL → TensorRT → CUDA → CPU（eigen）的顺序在 `katago` 文件夹里寻找，找不到就按硬件自动下载合适的官方版本。
 - 路径都跟随程序所在位置：从 exe 往上找含 `katago` 或 `models` 文件夹的目录作为根目录，整个文件夹拷到别的电脑也能用。
+
+## 致谢
+- [KataGo](https://github.com/lightvector/KataGo)（David J. Wu 及贡献者，MIT）：围棋引擎
+- [katagotraining.org](https://katagotraining.org/)：官方神经网络模型和分布式训练
+- [Qt](https://www.qt.io/)（LGPL-3.0）：界面库
+- [Lucide](https://lucide.dev)（ISC）：工具栏图示
