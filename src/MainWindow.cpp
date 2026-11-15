@@ -57,7 +57,7 @@ static void fillStrengthBox(QComboBox *box, bool verbose)
              {"很强（1600 次）", 1600}, {"最强（6400 次）", 6400}})
         box->addItem(T(label), v);
     box->insertSeparator(box->count());
-    for (int v : {-20, -15, -12, -10, -8, -6, -5, -4, -3, -2, -1, -101, -102, -103, -104, -105, -106, -107, -109})
+    for (int v : {-20, -15, -12, -10, -8, -6, -5, -4, -3, -2, -1, -101, -102, -103, -104, -105, -106, -107, -108}) // 国内业余段位最高 8 段，不列网上才有的 9 段
         box->addItem(verbose ? T("像业余 %1 那样下").arg(rankLabel(v)) : T("业余 %1").arg(rankLabel(v)), v);
 }
 
@@ -723,7 +723,7 @@ void MainWindow::setAiVisits(int v)
     }
     if (m_strengthBox) {
         int i = m_strengthBox->findData(v);
-        if (i < 0) { m_strengthBox->addItem(T("%1 次").arg(v), v); i = m_strengthBox->count() - 1; }
+        if (i < 0) { m_strengthBox->addItem(isRank(v) ? strengthText(v) : T("%1 次").arg(v), v); i = m_strengthBox->count() - 1; }
         m_strengthBox->setCurrentIndex(i);
     }
     if (v == m_aiVisits) return;
