@@ -433,6 +433,11 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
         // 对方刚停了一手：如果停一手不吃亏，AI 也停，好让对局结束
         const Move &prev = m_tree.current()->move;
         if (prev.isValid() && prev.isPass()) {
+            // 全盘每个点的归属都已确定（中国规则下已无单官可收），停一手
+            const QJsonArray own = resp.value("ownership").toArray();
+            bool settled = own.size() == m_tree.boardSize() * m_tree.boardSize();
+            for (const auto &v : own) if (qAbs(v.toDouble()) < 0.5) { settled = false; break; }
+            if (settled) best = QStringLiteral("pass");
             if (!infos.isEmpty()) {
                 const double bestLead = infos.first().toObject().value("scoreLead").toDouble();
                 for (const auto &v : infos) {
@@ -531,7 +536,8 @@ void MainWindow::sendAiQuery()
     QJsonObject q = buildQuery();
     q["maxVisits"] = m_aiVisits;
     q.remove("reportDuringSearchEvery");
-    q["includeOwnership"] = false;
+    // 对方刚停一手时要看全盘归属，判断该不该跟着停
+    q["includeOwnership"] = m_tree.current()->move.isValid() && m_tree.current()->move.isPass();
     q["includePolicy"] = true;
     m_aiNode = m_tree.current();
     m_aiQueryId = m_engine->analyze(q);
