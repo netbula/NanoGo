@@ -9,7 +9,8 @@ struct AppSettings {
     int gpuDevice = -1;      // OpenCL 显卡编号，-1 = 让 KataGo 自动挑选
     int searchThreads = 0;   // 搜索线程数，0 = 自动（首次运行时测试本机硬件得出）
     int tunedThreads = 0;    // 自动测试的结果
-    QString tunedFor;        // 测试结果对应的 引擎|模型，换了就重新测
+    QString tunedFor;        // 测试结果对应的 引擎|模型|显卡，换了就重新测
+    QString gpuName;         // 本次运行自动选中的显卡（不保存）
     int maxVisits = 1000;    // 每个局面的最大计算量
     double komi = 7.5;
     QString rules = QStringLiteral("chinese");
@@ -23,7 +24,7 @@ struct AppSettings {
     static QString iniPath();
     static QString modelsDir();  // 自动下载的模型放这里
 
-    QString tuneKey() const { return katagoPath + "|" + modelPath; }
+    QString tuneKey() const { return katagoPath + "|" + modelPath + "|" + gpuName; }
     bool needsTuning() const { return searchThreads <= 0 && (tunedThreads <= 0 || tunedFor != tuneKey()); }
     int effectiveThreads() const { return searchThreads > 0 ? searchThreads : (tunedThreads > 0 ? tunedThreads : 8); }
     QString effectiveLanguage() const;
@@ -31,4 +32,8 @@ struct AppSettings {
     void load();
     void save() const;
     void autoDetect();       // 第一次运行时自动找 KataGo 和模型
+    // 找出所有可用的 KataGo，按 显卡版 → CPU 版 排好序（katago 文件夹及其子文件夹）
+    static QStringList findKatagoBuilds();
+    // 当前引擎起不来时的下一个候选（例如没有显卡时从 OpenCL 版换成 CPU 版），没有则返回空
+    QString nextKatagoBuild() const;
 };

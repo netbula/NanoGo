@@ -28,6 +28,16 @@
 | Ctrl+E | 点目 / 结束对局 |
 | V | 参考图：在棋盘上显示 AI 推荐的第一条变化 |
 
+## 下载使用（推荐）
+到 [Releases](../../releases) 下载 `NanoGo-版本号-windows-x64.zip`，解压到普通文件夹，双击 `NanoGo.exe` 即可。
+不需要另外安装任何东西：
+- Qt 运行库、VC 运行库、KataGo 引擎（显卡 OpenCL 版 + 两个 CPU 版）都在压缩包里；
+- 第一次打开自动下载 KataGo 官方最强模型（只下载一次，SHA-256 校验）；
+- 自动识别显卡：自己列出所有显卡，优先选独立显卡、显存大的那块，明确告诉 KataGo，不让它在集成显卡和独立显卡之间猜；没有可用显卡或显卡驱动不支持 OpenCL 时自动改用 CPU 版（按 CPU 是否支持 AVX2 选择）；
+- 自动测速，选出这台电脑最合适的线程数。
+
+授权：NanoGo 本身是 MIT 许可（见 `LICENSE`），第三方组件见 `THIRD_PARTY_NOTICES.md`。
+
 ## 编译（Windows）
 需要：Visual Studio 2026（含 C++ 桌面开发）、Qt 6.8.3 msvc2022_64（装在 `C:\dev\Qt`）。
 
@@ -37,7 +47,10 @@ set CMAKE="C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\IDE\Co
 %CMAKE% --build --preset release
 ```
 
-生成的程序在 `build\Release\NanoGo.exe`，Qt 运行库会自动复制到同一目录。
+生成的程序在 `build\Release\NanoGo.exe`，Qt 运行库会自动复制到同一目录。`CMakePresets.json` 里的 Qt 路径按你自己的安装位置修改。
+自己编译时，把 KataGo 官方发布的 Windows 版解压到 `katago\opencl`、`katago\cpu` 等子文件夹即可。
+
+推送 `v*` 标签时，GitHub Actions（`.github/workflows/release.yml`）会自动编译、打包并发布到 Releases。
 
 ## 文件位置
 - `nanogo.ini`：设置，放在 exe 旁边

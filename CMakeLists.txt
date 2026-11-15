@@ -24,11 +24,15 @@ set(SOURCES
     src/MainWindow.h src/MainWindow.cpp
     src/ModelUpdater.h src/ModelUpdater.cpp
     src/I18n.h src/I18n.cpp
+    src/HardwareInfo.h src/HardwareInfo.cpp
 )
 
 qt_add_executable(NanoGo ${SOURCES})
 target_link_libraries(NanoGo PRIVATE Qt6::Widgets Qt6::Network)
 set_target_properties(NanoGo PROPERTIES WIN32_EXECUTABLE ON)
+if(WIN32)
+    target_link_libraries(NanoGo PRIVATE dxgi)
+endif()
 
 # Windows: 编译后自动把 Qt 的 dll 复制到 exe 旁边，方便直接双击运行
 if(WIN32)

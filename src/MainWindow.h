@@ -11,6 +11,7 @@ class QLabel;
 class QPlainTextEdit;
 class QAction;
 class QListWidget;
+class QProgressDialog;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -38,6 +39,7 @@ private:
     void saveSgf();
     void openSettings();
     void restartEngine();
+    void startEngine();  // 先识别硬件、选好引擎和显卡，再启动
     void onPointClicked(int x, int y);
     void onEngineState(KataGoEngine::State s, const QString &msg);
     void onAnalysis(const QJsonObject &resp);
@@ -55,13 +57,18 @@ private:
     QPlainTextEdit *m_log, *m_comment;
     QListWidget *m_refList;
     QLabel *m_lastMoveRef;
-    QString m_pinnedMove;  // 右侧选中的参考图第一手
+    QString m_pinnedMove;
+    QProgressDialog *m_dlProgress = nullptr;  // 右侧选中的参考图第一手
     QAction *m_analyzeAct, *m_candAct, *m_ownAct;
     QString m_queryId;
     GameNode *m_queryNode = nullptr;
     QString m_sgfPath;
     ModelUpdater *m_updater;
     bool m_manualCheck = false;
+    bool m_firstModel = false;  // 第一次使用、还没有模型：自动下载
+    QStringList m_triedBuilds;
+    QString m_chosenGpuName;    // 自动选中的显卡名字，用来核对 KataGo 实际用的是不是它
+    int m_gpuOverride = -1;     // 核对后修正的 OpenCL 编号  // 本次已经试过、起不来的引擎
     // 人机对弈
     Stone m_aiColor = Stone::Empty;
     int m_aiVisits = 400;

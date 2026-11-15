@@ -1,6 +1,7 @@
 #include "I18n.h"
 #include "MainWindow.h"
 #include "BoardWidget.h"
+#include "HardwareInfo.h"
 #include "SettingsDialog.h"
 #include "Sgf.h"
 #include <QAction>
@@ -8,6 +9,7 @@
 #include <QApplication>
 #include <QPushButton>
 #include <QProcess>
+#include <QProgressDialog>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDialog>
@@ -45,32 +47,61 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_engine, &KataGoEngine::tuned, this, [this](int t) {
         m_settings.tunedThreads = t;
         m_settings.tunedFor = m_settings.tuneKey();
+        m_log->appendPlainText(T("已记住本机最佳搜索线程数：%1").arg(t));
         m_settings.save();
     });
     connect(m_engine, &KataGoEngine::logLine, this, [this](const QString &l) { m_log->appendPlainText(l); });
     restoreAutosave();
     positionChanged();
-    m_engine->start(m_settings);
+    if (m_settings.modelPath.isEmpty()) {
+        // 第一次使用：没有模型，自动从 KataGo 官方训练站下载最强模型
+        m_firstModel = true;
+        m_engineStatus->setText(T("第一次使用：正在下载 KataGo 官方最强模型，下载完成后自动启动…"));
+        QTimer::singleShot(500, this, [this] { checkModel(false); });
+    } else {
+        startEngine();
+    }
 
     // 模型自动更新
     connect(m_updater, &ModelUpdater::listReady, this, &MainWindow::onModelList);
     connect(m_updater, &ModelUpdater::failed, this, [this](const QString &msg) {
         m_log->appendPlainText(msg);
+        if (m_dlProgress) { m_dlProgress->deleteLater(); m_dlProgress = nullptr; }
+        if (m_firstModel) {
+            QMessageBox::warning(this, T("第一次使用"),
+                msg + "\n\n" + T("没能自动下载模型。请检查网络后重新打开 NanoGo，或者从 katagotraining.org 手动下载一个 .bin.gz 模型放进 models 文件夹。"));
+            return;
+        }
         if (m_manualCheck) QMessageBox::warning(this, T("模型更新"), msg);
         else statusBar()->showMessage(msg, 8000);
     });
     connect(m_updater, &ModelUpdater::downloadProgress, this, [this](qint64 d, qint64 t) {
-        if (t > 0) statusBar()->showMessage(T("正在下载新模型… %1%（%2 / %3 MB）")
-                                                .arg(d * 100 / t).arg(d >> 20).arg(t >> 20));
+        if (t <= 0) return;
+        const QString text = T("正在下载新模型… %1%（%2 / %3 MB）").arg(d * 100 / t).arg(d >> 20).arg(t >> 20);
+        statusBar()->showMessage(text);
+        if (m_firstModel) {
+            if (!m_dlProgress) {
+                m_dlProgress = new QProgressDialog(this);
+                m_dlProgress->setWindowTitle(T("第一次使用"));
+                m_dlProgress->setCancelButton(nullptr);
+                m_dlProgress->setMinimumWidth(460);
+                m_dlProgress->setRange(0, 100);
+                m_dlProgress->show();
+            }
+            m_dlProgress->setLabelText(T("正在从 KataGo 官方训练站下载最强的神经网络模型，只需要下载一次。") + "\n\n" + text);
+            m_dlProgress->setValue(int(d * 100 / t));
+        }
     });
     connect(m_updater, &ModelUpdater::downloadFinished, this, [this](const QString &path) {
+        if (m_dlProgress) { m_dlProgress->deleteLater(); m_dlProgress = nullptr; }
+        m_firstModel = false;
         m_settings.modelPath = path;
         m_settings.save();
         statusBar()->showMessage(T("已切换到新模型 %1（第一次使用需要几分钟显卡调优）").arg(QFileInfo(path).fileName()), 15000);
         m_log->appendPlainText(T("—— 切换模型：%1 ——").arg(path));
         restartEngine();
     });
-    if (m_settings.autoUpdateModel
+    if (!m_firstModel && m_settings.autoUpdateModel
         && (!m_settings.lastModelCheck.isValid() || m_settings.lastModelCheck.secsTo(QDateTime::currentDateTime()) > 24 * 3600))
         QTimer::singleShot(3000, this, [this] { checkModel(false); });
     if (qEnvironmentVariableIsSet("NANOGO_SCREENSHOT")) {
@@ -392,7 +423,7 @@ void MainWindow::restartEngine()
     m_queryId.clear();
     m_queryNode = nullptr;
     m_log->appendPlainText(T("—— 重启引擎 ——"));
-    m_engine->start(m_settings);
+    startEngine();
 }
 
 void MainWindow::onPointClicked(int x, int y)
@@ -411,8 +442,38 @@ void MainWindow::onEngineState(KataGoEngine::State s, const QString &msg)
     QString color = s == KataGoEngine::State::Ready ? "green" : s == KataGoEngine::State::Failed ? "red" : "#b07000";
     m_engineStatus->setText(QStringLiteral("<span style='color:%1'>●</span> %2").arg(color, msg.section('\n', 0, 0).toHtmlEscaped()));
     if (s == KataGoEngine::State::Ready && m_analyzeAct->isChecked()) requestAnalysis();
-    if (s == KataGoEngine::State::Ready) { m_aiQueryId.clear(); maybeAiMove(); }
+    if (s == KataGoEngine::State::Ready && !m_chosenGpuName.isEmpty() && !m_engine->deviceName().isEmpty()
+        && !m_engine->deviceName().contains(m_chosenGpuName)) {
+        // KataGo 实际用的卡和我们选的不一样（两边编号不一致）：按名字找到正确编号后重启
+        for (const QString &d : m_engine->openclDevices()) {
+            if (d.contains(m_chosenGpuName)) {
+                const int idx = d.section(':', 0, 0).toInt();
+                if (idx != m_gpuOverride) {
+                    m_gpuOverride = idx;
+                    m_log->appendPlainText(T("—— KataGo 用错了显卡，改用 %1 号重新启动 ——").arg(idx));
+                    QTimer::singleShot(0, this, &MainWindow::restartEngine);
+                    return;
+                }
+            }
+        }
+    }
+    if (s == KataGoEngine::State::Ready) { m_aiQueryId.clear(); m_triedBuilds.clear(); maybeAiMove(); }
     if (s == KataGoEngine::State::Failed) {
+        // 硬件自动适配：当前引擎起不来（例如没有可用显卡），自动换下一个可用的引擎（显卡版 → CPU 版）
+        m_triedBuilds << m_settings.katagoPath;
+        QString next = m_settings.nextKatagoBuild();
+        while (!next.isEmpty() && m_triedBuilds.contains(next)) {
+            AppSettings tmp = m_settings; tmp.katagoPath = next; next = tmp.nextKatagoBuild();
+        }
+        if (!next.isEmpty()) {
+            m_log->appendPlainText(msg);
+            m_log->appendPlainText(T("—— 这个引擎在本机用不了，自动改用：%1 ——").arg(next));
+            statusBar()->showMessage(T("显卡版引擎用不了，已自动改用其他版本（可能是 CPU 版，会慢一些）"), 10000);
+            m_settings.katagoPath = next;
+            m_settings.save();
+            QTimer::singleShot(0, this, &MainWindow::restartEngine);
+            return;
+        }
         QMessageBox box(QMessageBox::Warning, T("引擎出错"), msg, QMessageBox::Ok, this);
         QPushButton *settingsBtn = box.addButton(T("打开设置"), QMessageBox::ActionRole);
         box.exec();
@@ -735,6 +796,11 @@ void MainWindow::onModelList(const QList<NetworkInfo> &list)
         if (m_manualCheck) QMessageBox::warning(this, T("模型更新"), T("没有从官方列表里找到可用的模型。"));
         return;
     }
+    if (m_firstModel) {
+        m_log->appendPlainText(T("第一次使用，下载官方最强模型：") + best.name);
+        m_updater->download(best);
+        return;
+    }
     const NetworkInfo *cur = ModelUpdater::find(list, m_settings.modelPath);
     auto desc = [](const NetworkInfo &n) {
         return T("%1\n等级分 %2 ± %3（%4 局评测）").arg(n.name).arg(n.elo, 0, 'f', 0).arg(n.eloUncertainty, 0, 'f', 0).arg(n.games);
@@ -954,4 +1020,60 @@ void MainWindow::refreshReference()
         }
         if (++row >= 6) break;
     }
+}
+
+void MainWindow::startEngine()
+{
+    AppSettings run = m_settings;
+    const auto lower = [](const QString &p) { return p.toLower(); };
+    const bool openclBuild = lower(run.katagoPath).contains("opencl");
+    const bool cpuBuild = lower(run.katagoPath).contains("eigen") || lower(run.katagoPath).contains("/cpu");
+    m_chosenGpuName.clear();
+
+    if (openclBuild) {
+        QString why;
+        const QList<GpuInfo> gpus = HardwareInfo::openclGpus(&why);
+        for (const GpuInfo &g : gpus) m_log->appendPlainText(T("检测到显卡 ") + HardwareInfo::describe(g));
+        for (const DisplayAdapter &a : HardwareInfo::displayAdapters())
+            m_log->appendPlainText(T("系统显卡：%1（专用显存 %2 MB）").arg(a.name).arg(a.dedicatedMB));
+        if (gpus.isEmpty()) {
+            // 没有可用显卡：直接换 CPU 版，不去让 KataGo 报错
+            m_log->appendPlainText(why);
+            QString cpu;
+            for (const QString &b : AppSettings::findKatagoBuilds()) {
+                const QString l = b.toLower();
+                const bool avx2 = l.contains("avx2");
+                if (!(l.contains("eigen") || l.contains("cpu"))) continue;
+                if (avx2 && !HardwareInfo::cpuHasAvx2()) continue;
+                cpu = b;
+                break;
+            }
+            if (!cpu.isEmpty()) {
+                statusBar()->showMessage(why, 15000);
+                m_settings.katagoPath = cpu;
+                m_settings.save();
+                run.katagoPath = cpu;
+            }
+        } else if (run.gpuDevice < 0) {
+            // 自动选卡：独立显卡、显存大的优先，明确告诉 KataGo 用哪块
+            const GpuInfo &best = gpus[HardwareInfo::bestGpu(gpus)];
+            m_chosenGpuName = best.name;
+            run.gpuName = m_settings.gpuName = best.name;
+            run.gpuDevice = m_gpuOverride >= 0 ? m_gpuOverride : best.clIndex;
+            m_log->appendPlainText(T("—— 自动选用显卡 %1 ——").arg(HardwareInfo::describe(best)));
+            if (best.integrated)
+                m_log->appendPlainText(T("提示：只找到集成显卡，速度有限。"));
+        }
+    } else if (cpuBuild && lower(run.katagoPath).contains("avx2") && !HardwareInfo::cpuHasAvx2()) {
+        // 这台 CPU 不支持 AVX2：换通用 CPU 版，免得一启动就崩溃
+        for (const QString &b : AppSettings::findKatagoBuilds()) {
+            const QString l = b.toLower();
+            if ((l.contains("eigen") || l.contains("cpu")) && !l.contains("avx2")) {
+                m_settings.katagoPath = b; m_settings.save(); run.katagoPath = b;
+                break;
+            }
+        }
+    }
+    // 测速结果按 引擎|模型|显卡 分别记住（见 AppSettings::tuneKey），换了任何一样都会重新测
+    m_engine->start(run);
 }

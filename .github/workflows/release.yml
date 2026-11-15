@@ -1,0 +1,75 @@
+name: Build Windows release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  QT_VERSION: '6.8.3'
+  KATAGO_VERSION: 'v1.18.1'
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          cache: true
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          cmake --build build --config Release
+
+      - name: Assemble package
+        shell: pwsh
+        run: |
+          $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { "dev-$($env:GITHUB_SHA.Substring(0,7))" }
+          $dist = "dist/NanoGo"
+          New-Item -ItemType Directory -Force $dist, "$dist/katago", "$dist/models", "$dist/licenses" | Out-Null
+          Copy-Item -Recurse build/Release/* $dist
+          # 微软 VC 运行库（可再分发）放在程序旁边，用户不用另外安装
+          Copy-Item "$env:VCToolsRedistDir\x64\Microsoft.VC143.CRT\*.dll" $dist
+          # 官方 KataGo：OpenCL 版（显卡）+ 两个 CPU 版（AVX2 / 通用）
+          $kg = $env:KATAGO_VERSION
+          foreach ($pair in @(@('opencl','opencl'), @('cpu-avx2','eigenavx2'), @('cpu','eigen'))) {
+            $name = "katago-$kg-$($pair[1])-windows-x64.zip"
+            Invoke-WebRequest "https://github.com/lightvector/KataGo/releases/download/$kg/$name" -OutFile $name
+            Expand-Archive $name -DestinationPath "$dist/katago/$($pair[0])"
+            # 去掉示例里的特殊编译版本，保留 katago.exe 和它的 dll
+            Get-ChildItem "$dist/katago/$($pair[0])" -Filter 'katago*+*.exe' | Remove-Item
+          }
+          # 授权文件
+          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md $dist
+          Copy-Item packaging/README_使用说明.txt $dist
+          Invoke-WebRequest "https://raw.githubusercontent.com/lightvector/KataGo/$kg/LICENSE" -OutFile "$dist/licenses/KataGo-LICENSE.txt"
+          Invoke-WebRequest "https://www.gnu.org/licenses/lgpl-3.0.txt" -OutFile "$dist/licenses/Qt-LGPL-3.0.txt"
+          Invoke-WebRequest "https://www.gnu.org/licenses/gpl-3.0.txt" -OutFile "$dist/licenses/GPL-3.0.txt"
+          "models are downloaded automatically on first run. 模型会在第一次打开时自动下载。" | Out-File "$dist/models/README.txt" -Encoding utf8
+          Remove-Item -Recurse -Force "$dist/data", "$dist/nanogo.ini" -ErrorAction SilentlyContinue
+          Compress-Archive -Path $dist -DestinationPath "NanoGo-$ver-windows-x64.zip"
+          "ZIP=NanoGo-$ver-windows-x64.zip" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NanoGo-windows-x64
+          path: ${{ env.ZIP }}
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP }}
+          generate_release_notes: true

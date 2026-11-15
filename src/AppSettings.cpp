@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QLocale>
 #include <QSettings>
+#include <algorithm>
 
 QString AppSettings::appDir() { return QCoreApplication::applicationDirPath(); }
 
@@ -58,7 +59,7 @@ void AppSettings::load()
     rules = s.value("game/rules", rules).toString();
     autoUpdateModel = s.value("model/autoUpdate", autoUpdateModel).toBool();
     lastModelCheck = s.value("model/lastCheck").toDateTime();
-    if (katagoPath.isEmpty() || modelPath.isEmpty()) {
+    if (katagoPath.isEmpty() || modelPath.isEmpty() || !QFileInfo::exists(katagoPath) || !QFileInfo::exists(modelPath)) {
         autoDetect();
         save(); // 把自动找到的路径写进 nanogo.ini，方便查看和修改
     }
@@ -91,27 +92,49 @@ static QString newestMatch(const QString &dir, const QStringList &patterns, cons
     return files.isEmpty() ? QString() : files.first().absoluteFilePath();
 }
 
+QStringList AppSettings::findKatagoBuilds()
+{
+    QStringList dirs;
+    for (const QString &base : {QDir(appDir()).filePath("katago"), QDir(rootDir()).filePath("katago")}) {
+        if (!QDir(base).exists() || dirs.contains(QDir(base).absolutePath())) continue;
+        dirs << QDir(base).absolutePath();
+        for (const QFileInfo &sub : QDir(base).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot)) dirs << sub.absoluteFilePath();
+    }
+    QStringList exes;
+    for (const QString &d : dirs)
+        for (const QFileInfo &f : QDir(d).entryInfoList({"katago*.exe", "katago"}, QDir::Files))
+            if (!f.fileName().contains('+')) exes << f.absoluteFilePath(); // 带 + 的是特殊编译版本，跳过
+    // 显卡版优先，其次 CPU 版。路径里的文件夹名（如 opencl / cpu）也参与判断
+    auto rank = [](const QString &path) {
+        const QString p = path.toLower();
+        if (p.contains("opencl")) return 0;
+        if (p.contains("trt") || p.contains("tensorrt")) return 1;
+        if (p.contains("cuda")) return 2;
+        if (p.contains("eigenavx2") || p.contains("avx2")) return 4;
+        if (p.contains("eigen") || p.contains("cpu")) return 5;
+        return 3;
+    };
+    std::stable_sort(exes.begin(), exes.end(), [&](const QString &x, const QString &y) { return rank(x) < rank(y); });
+    return exes;
+}
+
+QString AppSettings::nextKatagoBuild() const
+{
+    const QStringList builds = findKatagoBuilds();
+    const int i = builds.indexOf(QFileInfo(katagoPath).absoluteFilePath());
+    if (i >= 0 && i + 1 < builds.size()) return builds[i + 1];
+    return {};
+}
+
 void AppSettings::autoDetect()
 {
     const QString home = QDir::homePath();
-    const QString root = rootDir();
-    if (katagoPath.isEmpty()) {
-        // 只在 NanoGo 自己的 katago 文件夹里找引擎，不依赖其他程序
-        const QStringList exeDirs = {QDir(appDir()).filePath("katago"), QDir(root).filePath("katago")};
-        // 显卡版优先，其次 CPU 版；带 + 的是特殊编译版本，跳过
-        const QStringList prefs = {"opencl", "trt", "tensorrt", "cuda", "eigenavx2", "eigen", ""};
-        for (const QString &pref : prefs) {
-            for (const QString &d : exeDirs) {
-                for (const QFileInfo &f : QDir(d).entryInfoList({"katago*.exe", "katago"}, QDir::Files)) {
-                    if (f.fileName().contains('+')) continue;
-                    if (pref.isEmpty() || f.fileName().contains(pref, Qt::CaseInsensitive)) { katagoPath = f.absoluteFilePath(); break; }
-                }
-                if (!katagoPath.isEmpty()) break;
-            }
-            if (!katagoPath.isEmpty()) break;
-        }
+    if (katagoPath.isEmpty() || !QFileInfo::exists(katagoPath)) {
+        const QStringList builds = findKatagoBuilds();
+        katagoPath = builds.isEmpty() ? QString() : builds.first();
     }
-    if (modelPath.isEmpty()) {
+    if (modelPath.isEmpty() || !QFileInfo::exists(modelPath)) {
+        modelPath.clear();
         const QStringList modelDirs = {modelsDir(), QDir(appDir()).filePath("models"), home + "/Downloads"};
         for (const QString &d : modelDirs) {
             QString p = newestMatch(d, {"*.bin.gz"});
