@@ -24,6 +24,7 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include "Sgf.h"
+#include "TsumegoEditor.h"
 
 namespace {
 constexpr double kWrongThreshold = 4.0;  // 题目范围内归属变化总和超过这个数就算错（约等于 2 个点换了主人）
@@ -357,4 +358,22 @@ void MainWindow::tsRefresh()
     m_analysisInfo->setText(T("<b>%1</b><br><span style='color:gray'>做题时不显示 AI 分析。做不出来可以点“看答案”。</span>").arg(Tsumego::goalText(p)));
     m_refList->clear();
     m_lastMoveRef->clear();
+}
+
+// 死活题编辑器：编辑当前题库（内置题库另存为新文件），编好可以直接做
+void MainWindow::openTsEditor()
+{
+    TsumegoEditor dlg(m_engine, this);
+    if (!m_tsProblems.isEmpty() && m_tsKey != QLatin1String("builtin")) dlg.setCollection(m_tsProblems, m_tsKey);
+    connect(&dlg, &TsumegoEditor::practiceRequested, this,
+            [this, &dlg](const QList<TsumegoProblem> &list, const QString &path, int index) {
+                dlg.reject();
+                if (dlg.isVisible()) return; // 用户取消了保存提示
+                m_tsProblems = list;
+                m_tsKey = path.isEmpty() ? QStringLiteral("editor") : path;
+                m_tsName = path.isEmpty() ? T("编辑中的题库") : QFileInfo(path).completeBaseName();
+                if (!m_tsMode) enterTsumego();
+                loadTsProblem(index);
+            });
+    dlg.exec();
 }

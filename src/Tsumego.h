@@ -21,8 +21,10 @@ QList<TsumegoProblem> loadCollection(const QString &sgfText);
 QList<TsumegoProblem> builtin();
 // 题目所在区域（所有棋子的外接矩形向外扩 margin 格，靠近边时一直扩到边）
 QRect region(const TsumegoProblem &p, int margin);
-// 生成这道题的 SGF（用来装进棋盘）
-QString toSgf(const TsumegoProblem &p);
+// 生成这道题的 SGF（用来装进棋盘）；withInfo 时带上题目名和目标（保存题库用）
+QString toSgf(const TsumegoProblem &p, bool withInfo = false);
+// 把一组题存成一个 SGF 题库文件的内容
+QString saveCollection(const QList<TsumegoProblem> &list);
 // “黑先活”之类的说明
 QString goalText(const TsumegoProblem &p);
 }

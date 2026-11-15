@@ -82,13 +82,26 @@ QRect Tsumego::region(const TsumegoProblem &p, int margin)
     return QRect(QPoint(x0, y0), QPoint(x1, y1));
 }
 
-QString Tsumego::toSgf(const TsumegoProblem &p)
+QString Tsumego::toSgf(const TsumegoProblem &p, bool withInfo)
 {
     auto c = [](const QPoint &q) { return QStringLiteral("[%1%2]").arg(QChar('a' + q.x())).arg(QChar('a' + q.y())); };
     QString s = QStringLiteral("(;GM[1]FF[4]SZ[%1]KM[0]RU[Chinese]PL[%2]").arg(p.size).arg(p.toPlay == Stone::White ? "W" : "B");
+    if (withInfo) {
+        auto esc = [](QString t) { return t.replace('\\', "\\\\").replace(']', "\\]"); };
+        s.replace("(;GM[1]FF[4]", "(;GM[1]FF[4]CA[UTF-8]AP[NanoGo]");
+        if (!p.title.isEmpty()) s += "GN[" + esc(p.title) + "]";
+        if (!p.goal.isEmpty()) s += "NG[" + p.goal + "]";
+    }
     if (!p.black.isEmpty()) { s += "AB"; for (const QPoint &q : p.black) s += c(q); }
     if (!p.white.isEmpty()) { s += "AW"; for (const QPoint &q : p.white) s += c(q); }
     return s + ")";
+}
+
+QString Tsumego::saveCollection(const QList<TsumegoProblem> &list)
+{
+    QString out;
+    for (const TsumegoProblem &p : list) out += toSgf(p, true) + "\n";
+    return out;
 }
 
 QString Tsumego::goalText(const TsumegoProblem &p)

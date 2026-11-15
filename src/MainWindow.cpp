@@ -3,6 +3,7 @@
 #include "EngineInstaller.h"
 #include "Icons.h"
 #include "WinrateGraph.h"
+#include "TsumegoEditor.h"
 #include "ModelChooser.h"
 #include "BoardWidget.h"
 #include "HardwareInfo.h"
@@ -194,8 +195,19 @@ MainWindow::MainWindow(QWidget *parent)
     if (!m_firstModel && m_settings.autoUpdateModel
         && (!m_settings.lastModelCheck.isValid() || m_settings.lastModelCheck.secsTo(QDateTime::currentDateTime()) > 24 * 3600))
         QTimer::singleShot(3000, this, [this] { checkModel(false); });
-    // 开发用：NANOGO_TSUMEGO=题号 启动后直接进入死活题练习
-    if (qEnvironmentVariableIsSet("NANOGO_TSUMEGO")) {
+    // 开发用：NANOGO_TSEDITOR=截图文件 打开题目编辑器（载入内置题），检查后截图退出
+    if (qEnvironmentVariableIsSet("NANOGO_TSEDITOR")) {
+        auto *ed = new TsumegoEditor(m_engine, this);
+        ed->setCollection(Tsumego::builtin(), {});
+        ed->show();
+        connect(m_engine, &KataGoEngine::stateChanged, ed, [ed](KataGoEngine::State st) {
+            if (st == KataGoEngine::State::Ready) QMetaObject::invokeMethod(ed, "check", Qt::QueuedConnection);
+        });
+        QTimer::singleShot(qEnvironmentVariableIntValue("NANOGO_SCREENSHOT_DELAY"), ed, [ed] {
+            ed->grab().save(qEnvironmentVariable("NANOGO_TSEDITOR"));
+            QApplication::quit();
+        });
+    } else if (qEnvironmentVariableIsSet("NANOGO_TSUMEGO")) {
         QTimer::singleShot(500, this, [this] {
             enterTsumego();
             loadTsProblem(qEnvironmentVariableIntValue("NANOGO_TSUMEGO") - 1);
@@ -537,6 +549,7 @@ void MainWindow::buildUi()
     m_tsAct->setToolTip(T("死活题练习：KataGo 判断对错") + " (Ctrl+L)");
     connect(m_tsAct, &QAction::triggered, this, [this](bool on) { on ? enterTsumego() : exitTsumego(); });
     nav->addAction(T("打开死活题库…"), this, &MainWindow::openTsCollection);
+    nav->addAction(T("死活题编辑器…"), this, &MainWindow::openTsEditor);
 
     QMenu *ana = menuBar()->addMenu(T("分析(&A)"));
     m_analyzeAct = ana->addAction(T("开始/停止分析"));

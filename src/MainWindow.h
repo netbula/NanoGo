@@ -74,6 +74,7 @@ private:
     void enterTsumego();
     void exitTsumego();
     void openTsCollection();
+    void openTsEditor();
     void loadTsProblem(int i);
     QJsonObject tsQuery(Stone player) const;
     void tsSendBest();

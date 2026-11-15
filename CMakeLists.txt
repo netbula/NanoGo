@@ -29,6 +29,7 @@ set(SOURCES
     src/Review.h src/Review.cpp
     src/WinrateGraph.h src/WinrateGraph.cpp
     src/Tsumego.h src/Tsumego.cpp src/MainWindowTsumego.cpp
+    src/TsumegoEditor.h src/TsumegoEditor.cpp
     src/I18n.h src/I18n.cpp
     src/HardwareInfo.h src/HardwareInfo.cpp
 )

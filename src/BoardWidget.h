@@ -26,6 +26,7 @@ public:
 
 signals:
     void pointClicked(int x, int y);
+    void pointRightClicked(int x, int y);
 
 protected:
     void paintEvent(QPaintEvent *) override;

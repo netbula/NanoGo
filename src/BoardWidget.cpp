@@ -246,7 +246,9 @@ void BoardWidget::paintEvent(QPaintEvent *)
 void BoardWidget::mousePressEvent(QMouseEvent *e)
 {
     int x, y;
-    if (e->button() == Qt::LeftButton && pixelToPoint(e->position(), &x, &y)) emit pointClicked(x, y);
+    if (!pixelToPoint(e->position(), &x, &y)) return;
+    if (e->button() == Qt::LeftButton) emit pointClicked(x, y);
+    else if (e->button() == Qt::RightButton) emit pointRightClicked(x, y);
 }
 
 void BoardWidget::mouseMoveEvent(QMouseEvent *e)
