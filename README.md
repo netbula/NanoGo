@@ -24,6 +24,7 @@
 | T | 显示 / 隐藏形势 |
 | Ctrl+P | 停一手 |
 | Ctrl+G | 人机对弈 |
+| Ctrl+E | 点目 / 结束对局 |
 
 ## 编译（Windows）
 需要：Visual Studio 2026（含 C++ 桌面开发）、Qt 6.8.3 msvc2022_64（装在 `C:\dev\Qt`）。

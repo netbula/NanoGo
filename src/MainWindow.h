@@ -3,6 +3,7 @@
 #include "GameTree.h"
 #include "KataGoEngine.h"
 #include "ModelUpdater.h"
+#include <QHash>
 #include <QMainWindow>
 
 class BoardWidget;
@@ -25,6 +26,9 @@ private:
     void newAiGame();
     void maybeAiMove();
     void sendAiQuery();
+    void sendSideQuery(int purpose, int visits);
+    void countScore();
+    void showCount(GameNode *node, const QJsonObject &resp);
     void checkModel(bool manual);
     void autosave();
     void restoreAutosave();
@@ -59,5 +63,9 @@ private:
     QString m_aiQueryId;
     GameNode *m_aiNode = nullptr;
     bool m_aiPaused = false;
-    bool m_aiOneShot = false;  // “让 AI 走这一步”：替当前一方走一步  // 浏览/悔棋后 AI 暂停，等你落子再继续
+    bool m_aiOneShot = false;
+    // 额外请求：0 = 只为显示形势，1 = 点目
+    struct SideQuery { GameNode *node; int purpose; };
+    QHash<QString, SideQuery> m_side;
+    QString m_ownQueryId;  // “让 AI 走这一步”：替当前一方走一步  // 浏览/悔棋后 AI 暂停，等你落子再继续
 };

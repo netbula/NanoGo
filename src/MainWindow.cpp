@@ -205,7 +205,13 @@ void MainWindow::buildUi()
     m_ownAct = ana->addAction(QStringLiteral("显示形势（地盘）"));
     m_ownAct->setCheckable(true);
     m_ownAct->setShortcut(QKeySequence(Qt::Key_T));
-    connect(m_ownAct, &QAction::toggled, m_board, &BoardWidget::setShowOwnership);
+    connect(m_ownAct, &QAction::toggled, this, [this](bool on) {
+        m_board->setShowOwnership(on);
+        // 没开分析时，单独算一次形势
+        if (on && !m_analyzeAct->isChecked() && !m_tree.current()->analysis.raw.contains("ownership")) sendSideQuery(0, 200);
+    });
+    ana->addSeparator();
+    QAction *countA = ana->addAction(QStringLiteral("点目 / 结束对局"), QKeySequence(Qt::CTRL | Qt::Key_E), this, &MainWindow::countScore);
     ana->addSeparator();
     ana->addAction(QStringLiteral("重启引擎"), this, &MainWindow::restartEngine);
 
@@ -233,6 +239,8 @@ void MainWindow::buildUi()
     tb->addAction(m_analyzeAct);
     tb->addAction(m_candAct);
     tb->addAction(m_ownAct);
+    tb->addSeparator();
+    tb->addAction(countA);
 }
 
 void MainWindow::newGame()
@@ -422,12 +430,48 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
             QMessageBox::information(this, QStringLiteral("对局结束"), QStringLiteral("AI 认输，你赢了！"));
             return;
         }
+        // 对方刚停了一手：如果停一手不吃亏，AI 也停，好让对局结束
+        const Move &prev = m_tree.current()->move;
+        if (prev.isValid() && prev.isPass()) {
+            if (!infos.isEmpty()) {
+                const double bestLead = infos.first().toObject().value("scoreLead").toDouble();
+                for (const auto &v : infos) {
+                    const QJsonObject mi = v.toObject();
+                    if (mi.value("move").toString().compare("pass", Qt::CaseInsensitive) != 0) continue;
+                    const double diff = m_tree.toPlay() == Stone::Black ? bestLead - mi.value("scoreLead").toDouble()
+                                                                        : mi.value("scoreLead").toDouble() - bestLead;
+                    if (diff < 0.5) best = QStringLiteral("pass");
+                }
+            } else {
+                const QJsonArray policy = resp.value("policy").toArray();
+                const int n = m_tree.boardSize();
+                if (policy.size() > n * n && policy[n * n].toDouble() >= 0.05) best = QStringLiteral("pass");
+            }
+        }
         int x, y;
         if (!(BoardWidget::fromGtp(best, m_tree.boardSize(), &x, &y) && m_tree.play(x, y))) m_tree.pass();
         positionChanged();
         return;
     }
-    if (resp.value("id").toString() != m_queryId || !m_queryNode) return;
+    const QString rid = resp.value("id").toString();
+    if (m_side.contains(rid)) {
+        if (resp.value("isDuringSearch").toBool()) return;
+        const SideQuery sq = m_side.take(rid);
+        if (rid == m_ownQueryId) m_ownQueryId.clear();
+        const QJsonObject root = resp.value("rootInfo").toObject();
+        Analysis &a = sq.node->analysis;
+        if (!a.valid || a.visits <= root.value("visits").toInt() || !a.raw.contains("ownership")) {
+            a.valid = true;
+            a.winrateBlack = root.value("winrate").toDouble();
+            a.scoreLeadBlack = root.value("scoreLead").toDouble();
+            a.visits = root.value("visits").toInt();
+            a.raw = resp;
+        }
+        if (sq.node == m_tree.current()) { m_board->update(); refreshInfo(); }
+        if (sq.purpose == 1) showCount(sq.node, resp);
+        return;
+    }
+    if (rid != m_queryId || !m_queryNode) return;
     const QJsonObject root = resp.value("rootInfo").toObject();
     Analysis &a = m_queryNode->analysis;
     a.valid = true;
@@ -450,15 +494,16 @@ void MainWindow::positionChanged()
     m_board->update();
     refreshInfo();
     requestAnalysis();
+    if (m_ownAct->isChecked() && !m_analyzeAct->isChecked() && !m_tree.current()->analysis.raw.contains("ownership")) {
+        if (!m_ownQueryId.isEmpty()) { m_engine->terminate(m_ownQueryId); m_side.remove(m_ownQueryId); }
+        sendSideQuery(0, 200);
+    }
 
     if (m_aiColor != Stone::Empty) {
         const GameNode *cur = m_tree.current();
         if (cur->move.isPass() && cur->move.isValid() && cur->parent && cur->parent->move.isValid() && cur->parent->move.isPass()) {
-            m_aiColor = Stone::Empty;
-            const Analysis &a = cur->analysis.valid ? cur->analysis : cur->parent->analysis;
-            QString msg = QStringLiteral("双方都停了一手，对局结束。");
-            if (a.valid) msg += QStringLiteral("\nAI 估计：%1 领先 %2 目").arg(a.scoreLeadBlack >= 0 ? "黑" : "白").arg(qAbs(a.scoreLeadBlack), 0, 'f', 1);
-            QMessageBox::information(this, QStringLiteral("对局结束"), msg);
+            statusBar()->showMessage(QStringLiteral("双方都停了一手，正在点目…"), 5000);
+            countScore();
             return;
         }
         maybeAiMove();
@@ -670,4 +715,81 @@ void MainWindow::restoreAutosave()
     m_sgfPath = st.value("sgfPath").toString();
     if (m_aiColor != Stone::Empty) setWindowTitle(QStringLiteral("NanoGo 围棋 - 人机对弈"));
     else if (!m_sgfPath.isEmpty()) setWindowTitle(QStringLiteral("NanoGo 围棋 - %1").arg(QFileInfo(m_sgfPath).fileName()));
+}
+
+void MainWindow::sendSideQuery(int purpose, int visits)
+{
+    if (m_engine->state() != KataGoEngine::State::Ready) {
+        statusBar()->showMessage(QStringLiteral("引擎还没就绪，请稍候再试"), 3000);
+        return;
+    }
+    QJsonObject q = buildQuery();
+    q["maxVisits"] = visits;
+    q.remove("reportDuringSearchEvery");
+    q["includeOwnership"] = true;
+    const QString id = m_engine->analyze(q);
+    if (id.isEmpty()) return;
+    m_side.insert(id, SideQuery{m_tree.current(), purpose});
+    if (purpose == 0) m_ownQueryId = id;
+}
+
+void MainWindow::countScore()
+{
+    if (m_engine->state() != KataGoEngine::State::Ready) {
+        QMessageBox::information(this, QStringLiteral("点目"), QStringLiteral("引擎还没就绪，请稍候再点目。"));
+        return;
+    }
+    if (!m_aiQueryId.isEmpty()) { m_engine->terminate(m_aiQueryId); m_aiQueryId.clear(); }
+    m_aiPaused = true;
+    m_ownAct->setChecked(true); // 点目时显示地盘归属
+    statusBar()->showMessage(QStringLiteral("正在点目…"), 5000);
+    sendSideQuery(1, 800);
+}
+
+void MainWindow::showCount(GameNode *node, const QJsonObject &resp)
+{
+    const int n = m_tree.boardSize();
+    const QJsonArray own = resp.value("ownership").toArray();
+    if (own.size() != n * n) {
+        QMessageBox::warning(this, QStringLiteral("点目"), QStringLiteral("引擎没有返回地盘信息，无法点目。"));
+        return;
+    }
+    // 数子法（中国规则）：活子 + 围住的空点。归属不明（|v| < 0.5）的点算单官，不计。
+    int black = 0, white = 0, unsure = 0, deadB = 0, deadW = 0;
+    const Board &b = m_tree.board();
+    for (int i = 0; i < n * n; ++i) {
+        const double v = own[i].toDouble();
+        const Stone st = b.at(i % n, i / n);
+        if (v > 0.5) { ++black; if (st == Stone::White) ++deadW; }
+        else if (v < -0.5) { ++white; if (st == Stone::Black) ++deadB; }
+        else ++unsure;
+    }
+    const double komi = m_tree.komi();
+    const double diff = black - (white + komi);
+    const QString areaResult = diff > 0 ? QStringLiteral("黑胜 %1 目").arg(diff) : diff < 0 ? QStringLiteral("白胜 %1 目").arg(-diff) : QStringLiteral("和棋");
+    const double lead = resp.value("rootInfo").toObject().value("scoreLead").toDouble();
+    const QString rulesName = m_tree.rules() == "japanese" ? QStringLiteral("日本规则") : m_tree.rules() == "korean" ? QStringLiteral("韩国规则")
+                            : m_tree.rules() == "chinese" ? QStringLiteral("中国规则") : m_tree.rules();
+    QString msg = QStringLiteral("数子结果（中国规则）：\n黑 %1 子，白 %2 子，白贴 %3 目\n%4\n").arg(black).arg(white).arg(komi).arg(areaResult);
+    if (deadB || deadW) msg += QStringLiteral("（判为死子：黑 %1 个，白 %2 个，已算给对方）\n").arg(deadB).arg(deadW);
+    if (unsure) msg += QStringLiteral("还有 %1 个点归属不明（单官或未下完的地方），没计入。\n").arg(unsure);
+    msg += QStringLiteral("\nKataGo 按%1估计：%2 领先 %3 目").arg(rulesName, lead >= 0 ? QStringLiteral("黑") : QStringLiteral("白")).arg(qAbs(lead), 0, 'f', 1);
+
+    const bool inGame = m_aiColor != Stone::Empty;
+    if (inGame || m_tree.result.isEmpty()) {
+        msg += QStringLiteral("\n\n要结束对局并记录这个结果吗？");
+        if (QMessageBox::question(this, QStringLiteral("点目"), msg) == QMessageBox::Yes) {
+            m_tree.result = diff > 0 ? QStringLiteral("B+%1").arg(diff) : diff < 0 ? QStringLiteral("W+%1").arg(-diff) : QStringLiteral("0");
+            m_aiColor = Stone::Empty;
+            m_aiQueryId.clear();
+            setWindowTitle(QStringLiteral("NanoGo 围棋 - 对局已结束"));
+            autosave();
+            refreshInfo();
+        } else if (inGame) {
+            statusBar()->showMessage(QStringLiteral("对局继续：落子后 AI 接着下"), 5000);
+        }
+    } else {
+        QMessageBox::information(this, QStringLiteral("点目"), msg);
+    }
+    Q_UNUSED(node);
 }

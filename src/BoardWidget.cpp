@@ -120,6 +120,23 @@ void BoardWidget::paintEvent(QPaintEvent *)
         Stone s = b.at(x, y);
         if (s != Stone::Empty) drawStone(p, pointToPixel(x, y), s, r);
     }
+    // 形势：死子上画对方颜色的小方块
+    if (m_showOwnership && raw.contains("ownership")) {
+        const QJsonArray own = raw.value("ownership").toArray();
+        if (own.size() == n * n) {
+            for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) {
+                const Stone s = b.at(x, y);
+                const double v = own[y * n + x].toDouble();
+                if ((s == Stone::Black && v < -0.5) || (s == Stone::White && v > 0.5)) {
+                    QColor c = v > 0 ? QColor(0, 0, 0, 200) : QColor(255, 255, 255, 220);
+                    p.setPen(QPen(v > 0 ? Qt::white : Qt::black, 0.8));
+                    p.setBrush(c);
+                    p.drawRect(QRectF(pointToPixel(x, y) - QPointF(m_cell * 0.2, m_cell * 0.2), QSizeF(m_cell * 0.4, m_cell * 0.4)));
+                }
+            }
+        }
+    }
+
     // 最后一手标记
     const Move &last = m_tree->current()->move;
     if (last.isValid() && !last.isPass()) {
