@@ -31,6 +31,7 @@ private:
     void newAiGame();
     void swapSides();
     void setAiVisits(int v);
+    bool ensureHumanModel(int v);
     void maybeAiMove();
     void sendAiQuery();
     void sendSideQuery(int purpose, int visits);
@@ -103,7 +104,9 @@ private:
     int m_gpuOverride = -1;     // 核对后修正的 OpenCL 编号  // 本次已经试过、起不来的引擎
     // 人机对弈
     Stone m_aiColor = Stone::Empty;
-    int m_aiVisits = 400;
+    int m_aiVisits = 400;        // 正数 = 每步计算量；负数 = 模仿人类段位
+    int m_pendingStrength = 0;   // 等人类风格模型下载/加载好后要切换到的强度
+    bool m_humanDownload = false;
     QComboBox *m_strengthBox = nullptr;
     QString m_aiQueryId;
     GameNode *m_aiNode = nullptr;

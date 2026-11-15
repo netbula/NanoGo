@@ -64,6 +64,7 @@ void ModelChooser::fill()
     const NetworkInfo best = ModelUpdater::strongest(m_official);
     QDir models(AppSettings::modelsDir());
     QStringList localFiles = models.entryList({"*.bin.gz", "*.txt.gz"}, QDir::Files);
+    localFiles.removeIf([](const QString &f) { return AppSettings::isHumanModel(f); });
 
     QList<NetworkInfo> rows = m_official;
     std::sort(rows.begin(), rows.end(), [](const NetworkInfo &a, const NetworkInfo &b) { return a.eloLower > b.eloLower; });

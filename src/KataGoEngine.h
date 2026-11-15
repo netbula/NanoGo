@@ -21,6 +21,7 @@ public:
     State state() const { return m_state; }
     // 失败原因是配置或模型问题（换引擎也没用），而不是显卡/引擎本身起不来
     bool failureIsConfigOrModel() const;
+    bool hasHumanModel() const { return m_humanModel; }
     QString deviceName() const { return m_deviceName; }
     QStringList openclDevices() const { return m_devices; }
 
@@ -59,6 +60,7 @@ private:
     QString m_deviceName;
     int m_nextId = 0;
     bool m_stopping = false;
+    bool m_humanModel = false;
     bool m_benchmarking = false;
     bool m_tuneFailed = false;
     void parseProgress(const QString &line);

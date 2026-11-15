@@ -32,6 +32,16 @@ QString AppSettings::modelsDir()
     return d.filePath("models");
 }
 
+QString AppSettings::humanModelPath()
+{
+    return QDir(modelsDir()).filePath(QStringLiteral(HUMAN_MODEL_FILE));
+}
+
+bool AppSettings::isHumanModel(const QString &fileName)
+{
+    return fileName.contains(QStringLiteral("human"), Qt::CaseInsensitive);
+}
+
 QString AppSettings::effectiveLanguage() const
 {
     if (language != "auto") return language;
@@ -89,7 +99,9 @@ static QString newestMatch(const QString &dir, const QStringList &patterns, cons
     const QFileInfoList files = d.entryInfoList(patterns, QDir::Files, QDir::Size); // 大的优先
     for (const QFileInfo &f : files)
         if (!prefer.isEmpty() && f.fileName().contains(prefer, Qt::CaseInsensitive)) return f.absoluteFilePath();
-    return files.isEmpty() ? QString() : files.first().absoluteFilePath();
+    for (const QFileInfo &f : files)
+        if (!AppSettings::isHumanModel(f.fileName())) return f.absoluteFilePath(); // 人类风格模型不能当主模型
+    return {};
 }
 
 QStringList AppSettings::findKatagoBuilds()
@@ -139,7 +151,7 @@ void AppSettings::autoDetect()
         const QStringList modelDirs = {modelsDir(), QDir(appDir()).filePath("models")};
         for (const QString &d : modelDirs) {
             QString p = newestMatch(d, {"*.bin.gz"});
-            if (!p.isEmpty() && !QFileInfo(p).fileName().contains("human")) { modelPath = p; break; }
+            if (!p.isEmpty()) { modelPath = p; break; }
         }
     }
 }

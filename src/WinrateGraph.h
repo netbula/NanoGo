@@ -23,6 +23,7 @@ protected:
 private:
     int indexAt(double x) const;
     QRectF plotRect() const;
+    int span() const;
 
     QList<GameNode *> m_line;
     QList<MoveEval> m_evals;

@@ -38,10 +38,30 @@
 #include <QMenu>
 #include <QSettings>
 #include <QSplitter>
+#include <QRandomGenerator>
 #include <QStatusBar>
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
+
+// AI 强度用一个整数表示：正数 = 每步计算量；负数 = 模仿人类段位（-k = k 级，-(100+d) = d 段）
+static bool isRank(int v) { return v < 0; }
+static QString rankProfile(int v) { return v <= -100 ? QStringLiteral("rank_%1d").arg(-v - 100) : QStringLiteral("rank_%1k").arg(-v); }
+static QString rankLabel(int v) { return v <= -100 ? T("%1 段").arg(-v - 100) : T("%1 级").arg(-v); }
+
+static void fillStrengthBox(QComboBox *box, bool verbose)
+{
+    for (auto [label, v] : std::initializer_list<std::pair<const char *, int>>{
+             {"直觉（1 次）", 1}, {"快（20 次）", 20}, {"中（100 次）", 100}, {"强（400 次）", 400},
+             {"很强（1600 次）", 1600}, {"最强（6400 次）", 6400}})
+        box->addItem(T(label), v);
+    box->insertSeparator(box->count());
+    for (int v : {-20, -15, -12, -10, -8, -6, -5, -4, -3, -2, -1, -101, -102, -103, -104, -105, -106, -107, -109})
+        box->addItem(verbose ? T("像人类 %1 那样下").arg(rankLabel(v)) : T("人类 %1").arg(rankLabel(v)), v);
+}
+
+static QString strengthText(int v) { return isRank(v) ? T("人类 %1").arg(rankLabel(v)) : T("每步 %1 次计算").arg(v); }
+
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_engine(new KataGoEngine(this)), m_updater(new ModelUpdater(this)), m_installer(new EngineInstaller(this))
@@ -117,6 +137,12 @@ MainWindow::MainWindow(QWidget *parent)
         appendLog(msg);
         if (m_dlProgress) { m_dlProgress->deleteLater(); m_dlProgress = nullptr; }
         m_manualModelDownload = false;
+        if (m_humanDownload) {
+            m_humanDownload = false;
+            m_pendingStrength = 0;
+            QMessageBox::warning(this, T("按段位下棋"), msg + "\n\n" + T("可以稍后再选一次段位重新下载。"));
+            return;
+        }
         if (m_choosingModel) {
             // 连不上官方网站：只列出本机已有的模型
             m_choosingModel = false;
@@ -136,7 +162,11 @@ MainWindow::MainWindow(QWidget *parent)
         if (t <= 0) return;
         const QString text = T("正在下载新模型… %1%（%2 / %3 MB）").arg(d * 100 / t).arg(d >> 20).arg(t >> 20);
         statusBar()->showMessage(text);
-        if (m_firstModel)
+        if (m_humanDownload)
+            showDownloadProgress(T("正在下载 KataGo 官方的人类风格模型（按段位下棋用），只需要下载一次。") + "\n"
+                                     + T("模型来源：https://github.com/lightvector/KataGo/releases"),
+                                 text, int(d * 100 / t), T("下载模型"));
+        else if (m_firstModel)
             showDownloadProgress(T("正在从 KataGo 官方训练站下载最强的神经网络模型，只需要下载一次。") + "\n"
                                      + T("模型来源：https://katagotraining.org/"), text, int(d * 100 / t));
         else if (m_manualModelDownload)
@@ -145,6 +175,14 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(m_updater, &ModelUpdater::downloadFinished, this, [this](const QString &path) {
         if (m_dlProgress) { m_dlProgress->deleteLater(); m_dlProgress = nullptr; }
+        if (m_humanDownload) {
+            // 人类风格模型不替换主模型：重启引擎把它一起加载，就绪后切到选好的段位
+            m_humanDownload = false;
+            appendLog(T("—— 人类风格模型已下载：%1 ——").arg(path));
+            statusBar()->showMessage(T("人类风格模型已下载，正在重启引擎…"), 8000);
+            restartEngine();
+            return;
+        }
         m_firstModel = false;
         m_manualModelDownload = false;
         m_settings.modelPath = path;
@@ -570,11 +608,8 @@ void MainWindow::buildUi()
     // AI 思考强度：对局中随时可调，下一步立即生效
     tb->addWidget(new QLabel(T(" AI 强度："), tb));
     m_strengthBox = new QComboBox(tb);
-    for (auto [label, v] : std::initializer_list<std::pair<const char *, int>>{
-             {"直觉（1 次）", 1}, {"快（20 次）", 20}, {"中（100 次）", 100}, {"强（400 次）", 400},
-             {"很强（1600 次）", 1600}, {"最强（6400 次）", 6400}})
-        m_strengthBox->addItem(T(label), v);
-    m_strengthBox->setToolTip(T("AI 每步的计算量，越大越强、越慢。对局中随时可以改"));
+    fillStrengthBox(m_strengthBox, false);
+    m_strengthBox->setToolTip(T("AI 每步的计算量越大越强；选“人类 某段/级”时 AI 模仿该水平的人类下法。对局中随时可以改"));
     connect(m_strengthBox, &QComboBox::activated, this, [this] { setAiVisits(m_strengthBox->currentData().toInt()); });
     m_strengthBox->setCurrentIndex(qMax(0, m_strengthBox->findData(m_aiVisits)));
     tb->addWidget(m_strengthBox);
@@ -587,8 +622,42 @@ void MainWindow::buildUi()
     tb->addAction(countA);
 }
 
+// 按段位下棋需要 KataGo 的人类风格模型：没有就问要不要下载，已下载但引擎没加载就重启引擎
+bool MainWindow::ensureHumanModel(int v)
+{
+    if (QFileInfo::exists(AppSettings::humanModelPath())) {
+        if (!m_engine->hasHumanModel() && m_engine->state() != KataGoEngine::State::Starting) {
+            m_pendingStrength = v;
+            restartEngine();
+        }
+        return true;
+    }
+    if (m_updater->busy()) {
+        QMessageBox::information(this, T("按段位下棋"), T("正在下载别的模型，请等它下完再试。"));
+        return false;
+    }
+    const auto ans = QMessageBox::question(this, T("按段位下棋"),
+        T("按人类段位下棋要用 KataGo 官方的“人类风格”模型（%1，约 %2 MB），它学的是各个段位的人类棋谱，下法更像真人。\n\n现在下载吗？只需下载一次。")
+            .arg(QStringLiteral(HUMAN_MODEL_FILE)).arg(AppSettings::humanModelBytes >> 20));
+    if (ans != QMessageBox::Yes) return false;
+    NetworkInfo n;
+    n.name = QStringLiteral("b18c384nbt-humanv0");
+    n.url = QString::fromLatin1(AppSettings::humanModelUrl);
+    n.sha256 = QString::fromLatin1(AppSettings::humanModelSha256);
+    n.bytes = AppSettings::humanModelBytes;
+    m_humanDownload = true;
+    m_pendingStrength = v;
+    m_updater->download(n);
+    return false;
+}
+
 void MainWindow::setAiVisits(int v)
 {
+    if (isRank(v) && !ensureHumanModel(v)) {
+        // 还没有模型（正在下载或用户不下载）：强度框退回原来的选项
+        if (m_strengthBox) m_strengthBox->setCurrentIndex(qMax(0, m_strengthBox->findData(m_aiVisits)));
+        return;
+    }
     if (m_strengthBox) {
         int i = m_strengthBox->findData(v);
         if (i < 0) { m_strengthBox->addItem(T("%1 次").arg(v), v); i = m_strengthBox->count() - 1; }
@@ -596,7 +665,7 @@ void MainWindow::setAiVisits(int v)
     }
     if (v == m_aiVisits) return;
     m_aiVisits = v;
-    statusBar()->showMessage(T("AI 强度改为每步 %1 次计算").arg(v), 4000);
+    statusBar()->showMessage(T("AI 强度改为：%1").arg(strengthText(v)), 4000);
     autosave();
     // AI 正在想这一步：按新强度重新想
     if (!m_aiQueryId.isEmpty()) {
@@ -776,7 +845,19 @@ void MainWindow::onEngineState(KataGoEngine::State s, const QString &msg)
             }
         }
     }
-    if (s == KataGoEngine::State::Ready) { m_aiQueryId.clear(); m_triedBuilds.clear(); maybeAiMove(); }
+    if (s == KataGoEngine::State::Ready) {
+        m_aiQueryId.clear();
+        m_triedBuilds.clear();
+        if (m_pendingStrength != 0 && m_engine->hasHumanModel()) {
+            const int v = m_pendingStrength;
+            m_pendingStrength = 0;
+            setAiVisits(v);
+        } else if (isRank(m_aiVisits) && !m_engine->hasHumanModel()) {
+            // 人类风格模型不见了：退回普通强度，免得 AI 以为在按段位下其实是全力下
+            setAiVisits(400);
+        }
+        maybeAiMove();
+    }
     // 开发用：NANOGO_AUTOREVIEW=1 时引擎一就绪就整盘分析（自动测试用）
     if (s == KataGoEngine::State::Ready && qEnvironmentVariableIsSet("NANOGO_AUTOREVIEW") && m_reviewQueryId.isEmpty() && m_reviewDone == 0)
         startReview();
@@ -878,7 +959,25 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
         if (!oneShot && (m_aiColor == Stone::Empty || m_tree.toPlay() != m_aiColor)) return;
         const QJsonArray infos = resp.value("moveInfos").toArray();
         QString best;
-        if (!infos.isEmpty()) {
+        const QJsonArray human = resp.value("humanPolicy").toArray();
+        if (isRank(m_aiVisits) && !human.isEmpty()) {
+            // 按人类段位：照人类风格模型给出的“这个水平的人会下哪里”的概率抽一手，所以会犯符合该段位的错误
+            const int n = m_tree.boardSize();
+            double total = 0;
+            for (int i = 0; i < n * n && i < human.size(); ++i) total += qMax(0.0, human[i].toDouble());
+            double r = QRandomGenerator::global()->generateDouble() * total;
+            int pick = -1;
+            for (int i = 0; i < n * n && i < human.size(); ++i) {
+                const double p = qMax(0.0, human[i].toDouble());
+                if (p <= 0) continue;
+                pick = i;
+                if ((r -= p) <= 0) break;
+            }
+            // 人类模型最想停一手（收完官子）时才停
+            const double passP = human.size() > n * n ? human[n * n].toDouble() : 0;
+            if (pick < 0 || passP > 0.5) best = QStringLiteral("pass");
+            else best = BoardWidget::toGtp(pick % n, pick / n, n);
+        } else if (!infos.isEmpty()) {
             best = infos.first().toObject().value("move").toString();
         } else {
             // 计算量为 1 时 KataGo 不展开候选点，只能用策略网络（直觉）最高的点
@@ -1033,8 +1132,13 @@ void MainWindow::sendAiQuery()
 {
     if (!m_aiQueryId.isEmpty()) m_engine->terminate(m_aiQueryId);
     QJsonObject q = buildQuery();
-    q["maxVisits"] = m_aiVisits;
+    q["maxVisits"] = isRank(m_aiVisits) ? 1 : m_aiVisits;
     q.remove("reportDuringSearchEvery");
+    if (isRank(m_aiVisits) && m_engine->hasHumanModel()) {
+        QJsonObject o = q.value("overrideSettings").toObject();
+        o["humanSLProfile"] = rankProfile(m_aiVisits);
+        q["overrideSettings"] = o;
+    }
     // 对方刚停一手时要看全盘归属，判断该不该跟着停
     q["includeOwnership"] = m_tree.current()->move.isValid() && m_tree.current()->move.isPass();
     q["includePolicy"] = true;
@@ -1058,15 +1162,10 @@ void MainWindow::newAiGame()
     handicap->setToolTip(T("让子时黑方先摆子，白方先走，贴目自动改为 0.5"));
     form->addRow(T("让子（黑方摆子）："), handicap);
     auto *strength = new QComboBox(&dlg);
-    strength->addItem(T("很快（每步 1 次计算，只凭直觉）"), 1);
-    strength->addItem(T("快（每步 20 次）"), 20);
-    strength->addItem(T("中（每步 100 次）"), 100);
-    strength->addItem(T("强（每步 400 次，约 2 秒）"), 400);
-    strength->addItem(T("很强（每步 1600 次）"), 1600);
-    strength->addItem(T("最强（每步 6400 次）"), 6400);
+    fillStrengthBox(strength, true);
     strength->setCurrentIndex(qMax(0, strength->findData(m_aiVisits)));
-    form->addRow(T("AI 计算量："), strength);
-    auto *note = new QLabel(T("提示：KataGo 的模型即使每步只算 1 次也有职业以上水平。\n按人类段位调整强度会在后续版本加入。"), &dlg);
+    form->addRow(T("AI 强度："), strength);
+    auto *note = new QLabel(T("提示：按计算量的选项即使只算 1 次也有职业以上水平。\n想下得过，选“像人类 X 级/段那样下”：AI 模仿该水平的人类，第一次选要下载约 95 MB 的模型。"), &dlg);
     note->setStyleSheet("color: gray;");
     form->addRow(note);
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);

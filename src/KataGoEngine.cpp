@@ -93,7 +93,11 @@ void KataGoEngine::launchAnalysis()
     connect(m_proc, &QProcess::finished, this, &KataGoEngine::onFinished);
     connect(m_proc, &QProcess::errorOccurred, this, &KataGoEngine::onError);
     setState(State::Starting, T("正在启动 KataGo（第一次使用新模型时显卡调优可能要几分钟）…"));
-    m_proc->start(m_settings.katagoPath, {"analysis", "-config", cfg, "-model", m_settings.modelPath});
+    QStringList args = {"analysis", "-config", cfg, "-model", m_settings.modelPath};
+    // 有人类风格模型就一起加载，按段位下棋时用（只在带 humanSLProfile 的请求里起作用）
+    m_humanModel = QFileInfo::exists(AppSettings::humanModelPath());
+    if (m_humanModel) args << "-human-model" << AppSettings::humanModelPath();
+    m_proc->start(m_settings.katagoPath, args);
 }
 
 // 用 KataGo 自带的 benchmark 测出这台电脑最合适的搜索线程数

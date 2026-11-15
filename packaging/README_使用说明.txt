@@ -11,6 +11,8 @@ NanoGo 围棋 / NanoGo Go board
    - 自动测试本机硬件，选出最合适的设置（1 到 3 分钟）；
    - 有独立显卡就用显卡，没有就自动改用 CPU 版。
 4. 菜单“设置 > 界面语言”可以切换中文 / English / 日本語 / 한국어。
+5. 想和 AI 下得有来有回：工具栏“AI 强度”里选“人类 X 级/段”，第一次选会下载约 95 MB 的人类风格模型。
+6. 复盘：点棋盘下方“分析整盘棋”，看胜率曲线和红/橙色标出的坏棋。
 
 【English】
 1. Unzip the whole package into a normal folder (e.g. Desktop or D:\NanoGo), not C:\Program Files.
@@ -19,5 +21,7 @@ NanoGo 围棋 / NanoGo Go board
    KataGo engine (GPU/OpenCL or CPU build, ~6 MB), then the strongest official KataGo network (~250 MB, once),
    test your hardware to pick the best settings (1-3 minutes), and use your GPU if available or the CPU build otherwise.
 4. Settings > Interface language switches between 中文 / English / 日本語 / 한국어.
+5. For a beatable opponent pick "Human Xk/Xd" under AI strength (downloads a ~95 MB human-style model once).
+6. Review: click "Analyze whole game" below the board for the win-rate graph and marked mistakes.
 
 Licenses: see LICENSE, THIRD_PARTY_NOTICES.md and the licenses folder.

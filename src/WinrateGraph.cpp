@@ -21,6 +21,9 @@ void WinrateGraph::setData(const QList<GameNode *> &line, const QList<MoveEval> 
     update();
 }
 
+// 横轴至少显示 50 手，短棋局不会被拉得很宽
+int WinrateGraph::span() const { return qMax(50, int(m_line.size()) - 1); }
+
 QRectF WinrateGraph::plotRect() const { return QRectF(34, 8, width() - 44, height() - 24); }
 
 int WinrateGraph::indexAt(double x) const
@@ -28,7 +31,7 @@ int WinrateGraph::indexAt(double x) const
     if (m_line.size() < 2) return -1;
     const QRectF r = plotRect();
     const double t = (x - r.left()) / r.width();
-    return qBound(0, int(t * (m_line.size() - 1) + 0.5), int(m_line.size()) - 1);
+    return qBound(0, int(t * span() + 0.5), int(m_line.size()) - 1);
 }
 
 void WinrateGraph::paintEvent(QPaintEvent *)
@@ -37,7 +40,7 @@ void WinrateGraph::paintEvent(QPaintEvent *)
     p.setRenderHint(QPainter::Antialiasing);
     p.fillRect(rect(), palette().base());
     const QRectF r = plotRect();
-    const int n = qMax(1, int(m_line.size()) - 1);
+    const int n = span();
     auto xOf = [&](int i) { return r.left() + r.width() * i / n; };
 
     // 背景：上半黑优、下半白优

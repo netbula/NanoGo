@@ -23,6 +23,13 @@ struct AppSettings {
     static QString dataDir();    // 程序生成的配置、日志、调优文件放这里
     static QString iniPath();
     static QString modelsDir();  // 自动下载的模型放这里
+    // 模仿人类各段位下法的 KataGo 官方模型（按段位调强度用），第一次用时下载
+#define HUMAN_MODEL_FILE "b18c384nbt-humanv0.bin.gz"
+    static constexpr const char *humanModelUrl = "https://github.com/lightvector/KataGo/releases/download/v1.15.0/" HUMAN_MODEL_FILE;
+    static constexpr const char *humanModelSha256 = "637746e44f0efe00ad1245a50aa9bbf0716efe364c43965ead97bd6835d84ab5";
+    static constexpr qint64 humanModelBytes = 99066230;
+    static QString humanModelPath();
+    static bool isHumanModel(const QString &fileName);
 
     QString tuneKey() const { return katagoPath + "|" + modelPath + "|" + gpuName; }
     bool needsTuning() const { return searchThreads <= 0 && (tunedThreads <= 0 || tunedFor != tuneKey()); }
