@@ -1,8 +1,9 @@
 name: Build Windows release
 
 on:
-  push:
-    tags: ['v*']
+  # 在 GitHub 网页上发布一个 Release（例如 v0.1.0）时自动编译并把安装包附到这个 Release 上
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:

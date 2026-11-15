@@ -53,7 +53,7 @@ set CMAKE="C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\IDE\Co
 生成的程序在 `build\Release\NanoGo.exe`，Qt 运行库会自动复制到同一目录。`CMakePresets.json` 里的 Qt 路径按你自己的安装位置修改。
 自己编译时不用准备 KataGo，第一次运行会自动下载；也可以自己把 KataGo 官方发布的 Windows 版解压到 `katago\opencl`、`katago\cpu` 等子文件夹。
 
-推送 `v*` 标签时，GitHub Actions（`.github/workflows/release.yml`）会自动编译、打包并发布到 Releases。
+在 GitHub 上发布一个 Release（例如 `v0.1.0`）时，GitHub Actions（`.github/workflows/release.yml`）会自动编译、打包，并把安装包附到这个 Release 上。
 
 ## 文件位置
 - `nanogo.ini`：设置，放在 exe 旁边
