@@ -38,7 +38,7 @@ private:
     void onStderr();
     void onFinished(int code, QProcess::ExitStatus status);
     void onError(QProcess::ProcessError err);
-    QString writeConfig(const AppSettings &s) const;
+    QString writeConfig(const AppSettings &s, bool forBenchmark = false) const;
     QString explainFailure() const;
     void launchAnalysis();
     void runBenchmark();

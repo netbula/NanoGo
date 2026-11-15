@@ -20,10 +20,10 @@ void KataGoEngine::setState(State s, const QString &msg)
     emit stateChanged(s, msg);
 }
 
-QString KataGoEngine::writeConfig(const AppSettings &s) const
+QString KataGoEngine::writeConfig(const AppSettings &s, bool forBenchmark) const
 {
     const QString dir = AppSettings::dataDir();
-    const QString path = QDir(dir).filePath("analysis.cfg");
+    const QString path = QDir(dir).filePath(forBenchmark ? "benchmark.cfg" : "analysis.cfg");
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) return {};
     QTextStream o(&f);
@@ -37,8 +37,11 @@ QString KataGoEngine::writeConfig(const AppSettings &s) const
     o << "numAnalysisThreads = 2\n";
     const int threads = s.effectiveThreads();
     o << "numSearchThreadsPerAnalysisThread = " << threads << "\n";
+    // benchmark 按对弈（GTP）配置读取参数，必须有 numSearchThreads；实际测试的线程数由 -t 覆盖
+    if (forBenchmark) o << "numSearchThreads = " << threads << "\n";
     // 必填项：一次送进显卡的最大局面数。两个分析线程各自的搜索线程加起来正好填满一批。
-    o << "nnMaxBatchSize = " << qMax(8, threads * 2) << "\n";
+    // 测试硬件时最多同时测 32 个线程，批量要够大
+    o << "nnMaxBatchSize = " << (forBenchmark ? 64 : qMax(8, threads * 2)) << "\n";
     o << "nnCacheSizePowerOfTwo = 21\n";
     o << "nnMutexPoolSizePowerOfTwo = 17\n";
     o << "wideRootNoise = 0.04\n";
@@ -98,7 +101,7 @@ void KataGoEngine::runBenchmark()
 {
     m_benchmarking = true;
     m_benchLines.clear();
-    const QString cfg = writeConfig(m_settings);
+    const QString cfg = writeConfig(m_settings, true);
     QString threads;
     const bool cpuBuild = QFileInfo(m_settings.katagoPath).fileName().contains("eigen", Qt::CaseInsensitive);
     if (cpuBuild) {
@@ -166,8 +169,9 @@ void KataGoEngine::onBenchmarkFinished()
         emit tuned(bestThreads);
         launchAnalysis();
     } else {
-        // 测试本身失败，多半引擎也起不来：给出原因
-        setState(State::Failed, T("自动测试硬件失败。") + explainFailure());
+        // 测试没得出结果：不打扰用户，先用默认线程数启动分析；分析也起不来时再报具体原因
+        emit logLine(T("—— 自动测试硬件没有得出结果，先用默认设置启动 ——"));
+        launchAnalysis();
     }
 }
 
