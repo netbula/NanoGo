@@ -49,14 +49,15 @@ QIcon app()
         p.drawRoundedRect(QRectF(3, 5, 58, 58), 13, 13); // 阴影
         p.setBrush(wood);
         p.drawRoundedRect(QRectF(3, 2, 58, 58), 13, 13);
-        p.setPen(QPen(QColor(0x7a, 0x52, 0x1a, 150), 1.4));
-        for (int i = 1; i <= 3; ++i) {
-            const double v = 3 + i * 58.0 / 4;
+        // 3×3 交叉点，黑白子各占一个点，互不接触（棋子必须落在交叉点上）
+        p.setPen(QPen(QColor(0x7a, 0x52, 0x1a, 170), 1.6));
+        for (double v : {14.0, 32.0, 50.0}) {
             p.drawLine(QPointF(9, v - 1), QPointF(55, v - 1));
             p.drawLine(QPointF(v, 8), QPointF(v, 54));
         }
-        stone(p, QPointF(25.5, 37), 15, true);
-        stone(p, QPointF(40, 23.5), 14, false);
+        stone(p, QPointF(14, 49), 8.2, true);
+        stone(p, QPointF(32, 31), 8.2, false);
+        stone(p, QPointF(50, 31), 8.2, true);
     });
 }
 
