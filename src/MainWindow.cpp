@@ -622,6 +622,12 @@ void MainWindow::openSettings()
     if (dlg.exec() != QDialog::Accepted) return;
     AppSettings old = m_settings;
     m_settings = dlg.result();
+    if (old.modelPath != m_settings.modelPath && m_settings.autoUpdateModel) {
+        // 手动换了模型：关掉自动切换到最强，免得第二天又被换回去
+        m_settings.autoUpdateModel = false;
+        if (m_autoUpdAct) m_autoUpdAct->setChecked(false);
+        statusBar()->showMessage(T("已关闭“自动切换到官方最强模型”，以免换掉你选的模型"), 8000);
+    }
     m_settings.save();
     const bool engineChanged = old.katagoPath != m_settings.katagoPath || old.modelPath != m_settings.modelPath
                                || old.gpuDevice != m_settings.gpuDevice || old.searchThreads != m_settings.searchThreads
