@@ -62,7 +62,8 @@ private:
     bool m_benchmarking = false;
     bool m_tuneFailed = false;
     void parseProgress(const QString &line);
-    int m_tunePhases = 0;      // 显卡调优已经开始的项目数
+    int m_tunePhases = 0;
+    double m_tuneDoneWeight = 0, m_tuneCurWeight = 0;      // 显卡调优已经开始的项目数
     int m_benchTotal = 0, m_benchDone = 0;
     QSet<int> m_benchSeen;
     AppSettings m_settings;

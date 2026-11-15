@@ -285,21 +285,33 @@ void KataGoEngine::parseProgress(const QString &line)
     static const QRegularExpression stepRe(QStringLiteral("^Tuning\\s+(\\d+)\\s*/\\s*(\\d+)"));
     static const QRegularExpression phaseRe(QStringLiteral("^Tuning\\s+[A-Za-z]"));
     static const QRegularExpression benchRe(QStringLiteral("numSearchThreads\\s*=\\s*(\\d+)\\s*:.*visits/s"));
-    constexpr int kExpectedPhases = 11; // 大致项目数，只用来估算；实际更多时自动放宽
+    // 各项调优耗时差别很大（实测 hGemmWmma 约占一半），按项目名给权重，合计约 100
+    auto weightOf = [](const QString &header) {
+        if (header.contains("hGemmWmmaNCHW")) return 12.0;
+        if (header.contains("hGemmWmma")) return 45.0;
+        if (header.contains("xGemmDirect")) return 10.0;
+        if (header.contains("xGemm16")) return 8.0;
+        if (header.contains("xGemm")) return 12.0;
+        return 2.5; // winograd、pooling、transformer 等小项
+    };
     if (line.contains("Performing autotuning")) {
         m_tunePhases = 0;
+        m_tuneDoneWeight = 0;
+        m_tuneCurWeight = 0;
         emit prepareProgress(0, T("第 1 步：为这块显卡调优（只做一次）"));
         return;
     }
     if (phaseRe.match(line).hasMatch() && !stepRe.match(line).hasMatch()) {
         ++m_tunePhases;
+        m_tuneDoneWeight += m_tuneCurWeight;
+        m_tuneCurWeight = weightOf(line);
         return;
     }
     const auto s = stepRe.match(line);
     if (s.hasMatch() && m_tunePhases > 0) {
         const double frac = qBound(0.0, (s.captured(1).toDouble() + 1) / qMax(1.0, s.captured(2).toDouble()), 1.0);
-        const int total = qMax(kExpectedPhases, m_tunePhases + 1);
-        const int pct = qMin(99, int(((m_tunePhases - 1) + frac) * 100 / total));
+        const double total = qMax(100.0, m_tuneDoneWeight + m_tuneCurWeight + 2.5);
+        const int pct = qMin(99, int((m_tuneDoneWeight + frac * m_tuneCurWeight) * 100 / total));
         emit prepareProgress(pct, T("第 1 步：为这块显卡调优（只做一次）\n第 %1 项，已测试 %2 / %3 种参数")
                                       .arg(m_tunePhases).arg(s.captured(1).toInt() + 1).arg(s.captured(2)));
         return;
