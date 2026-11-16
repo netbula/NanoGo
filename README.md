@@ -25,12 +25,7 @@
 
 想让 NanoGo 用于教学（学校、围棋班、老师带学生），可以自己架一台 NanoGo 教学服务端。服务端程序**免费下载使用**，不开源。
 
-**下载：** 到 [Releases](../../releases?q=server&expanded=true) 找名字以 `server-` 开头的版本：
-- Windows：`nanogo-server-版本号-windows-amd64.zip`
-- Linux 服务器：`nanogo-server-版本号-linux-amd64.tar.gz`（ARM 服务器用 `linux-arm64`）
-- macOS（Apple 芯片）：`nanogo-server-版本号-darwin-arm64.tar.gz`
-
-每个版本都附有 `SHA256SUMS.txt`，可以核对下载的文件。
+**下载：** [github.com/netbula/NanoGo-server](https://github.com/netbula/NanoGo-server)，那里有 Windows、Linux、macOS 版本和完整的架设说明。也可以在 NanoGo 里点“在线 > 免费架设教学服务端…”。
 
 ### 服务端能做什么
 
