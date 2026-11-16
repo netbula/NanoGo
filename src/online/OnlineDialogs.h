@@ -69,12 +69,13 @@ private:
     void reload();
     void openSelected();
     void upload();
+    void uploadFiles();
     void deleteSelected();
     qint64 selectedId() const;
     OnlineHost *m_host;
     QComboBox *m_owner = nullptr;
     QTableWidget *m_table;
-    QPushButton *m_uploadBtn, *m_deleteBtn;
+    QPushButton *m_uploadBtn, *m_uploadFilesBtn, *m_deleteBtn;
     QJsonArray m_games;
 };
 

@@ -276,16 +276,20 @@ CloudGamesDialog::CloudGamesDialog(OnlineHost *host, QWidget *parent) : QDialog(
     auto *btns = new QHBoxLayout;
     auto *openBtn = new QPushButton(T("打开"), this);
     m_uploadBtn = new QPushButton(T("上传当前棋局…"), this);
+    m_uploadFilesBtn = new QPushButton(T("从文件上传…"), this);
+    m_uploadFilesBtn->setToolTip(T("选一个或多个 SGF 棋谱文件上传到云棋谱"));
     m_deleteBtn = new QPushButton(T("删除"), this);
     auto *closeBtn = new QPushButton(T("关闭"), this);
     btns->addWidget(openBtn);
     btns->addWidget(m_uploadBtn);
+    btns->addWidget(m_uploadFilesBtn);
     btns->addWidget(m_deleteBtn);
     btns->addStretch();
     btns->addWidget(closeBtn);
     lay->addLayout(btns);
     connect(openBtn, &QPushButton::clicked, this, &CloudGamesDialog::openSelected);
     connect(m_uploadBtn, &QPushButton::clicked, this, &CloudGamesDialog::upload);
+    connect(m_uploadFilesBtn, &QPushButton::clicked, this, &CloudGamesDialog::uploadFiles);
     connect(m_deleteBtn, &QPushButton::clicked, this, &CloudGamesDialog::deleteSelected);
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
     resize(760, 460);
@@ -303,6 +307,7 @@ void CloudGamesDialog::reload()
     const qint64 owner = m_owner ? m_owner->currentData().toLongLong() : api()->myId();
     const bool mine = owner == api()->myId();
     m_uploadBtn->setEnabled(mine);
+    m_uploadFilesBtn->setEnabled(mine);
     m_deleteBtn->setEnabled(mine || api()->isAdmin());
     QPointer<CloudGamesDialog> self(this);
     api()->get(QStringLiteral("/games?owner=%1").arg(owner), [self](const ApiResult &r) {
@@ -343,6 +348,35 @@ void CloudGamesDialog::upload()
         if (!r.ok) { Online::showError(self, T("上传当前棋局"), r); return; }
         self->reload();
     });
+}
+
+void CloudGamesDialog::uploadFiles()
+{
+    const QStringList paths = QFileDialog::getOpenFileNames(this, T("从文件上传…"), QString(), T("SGF 棋谱 (*.sgf);;所有文件 (*)"));
+    if (paths.isEmpty()) return;
+    m_uploadFilesBtn->setEnabled(false);
+    // 一个一个传，全部传完再刷新；出错的记下来最后一起说
+    auto failed = std::make_shared<QStringList>();
+    auto left = std::make_shared<int>(int(paths.size()));
+    QPointer<CloudGamesDialog> self(this);
+    for (const QString &path : paths) {
+        QFile f(path);
+        const QString name = QFileInfo(path).fileName();
+        if (!f.open(QIODevice::ReadOnly)) {
+            failed->append(name);
+            if (--*left == 0) { m_uploadFilesBtn->setEnabled(true); reload(); }
+            continue;
+        }
+        const QString sgf = Sgf::decode(f.readAll());
+        api()->post("/games", QJsonObject{{"sgf", sgf}, {"title", QFileInfo(path).completeBaseName()}}, [self, name, failed, left](const ApiResult &r) {
+            if (!r.ok) failed->append(QStringLiteral("%1（%2）").arg(name, r.message()));
+            if (--*left > 0 || !self) return;
+            self->m_uploadFilesBtn->setEnabled(true);
+            self->reload();
+            if (!failed->isEmpty())
+                QMessageBox::warning(self, T("从文件上传…"), T("这些文件没有传上去：\n%1").arg(failed->join('\n')));
+        });
+    }
 }
 
 void CloudGamesDialog::deleteSelected()
