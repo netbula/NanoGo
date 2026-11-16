@@ -1,5 +1,6 @@
 #include "I18n.h"
 #include "MainWindow.h"
+#include "online/OnlineDialogs.h"
 #include "Rules.h"
 #include <QLineEdit>
 #include <QRegularExpression>
@@ -317,7 +318,9 @@ void MainWindow::showAbout()
                   "<p>NanoGo 与 KataGo 项目没有隶属关系。</p>"
                   "<p>当前引擎：KataGo %1<br>引擎位置：%2<br>当前模型：%3</p>"
                   "<p>界面使用 Qt %4（LGPL-3.0）：<a href='https://www.qt.io/'>https://www.qt.io/</a></p>")
-                    .arg(EngineInstaller::version(), engine, model, QString::fromLatin1(qVersion())));
+                    .arg(EngineInstaller::version(), engine, model, QString::fromLatin1(qVersion()))
+                + T("<p>用 NanoGo 教围棋：教学服务端免费下载（账号班级、作业、指导棋、大课、比赛）：<br>"
+                    "<a href='%1'>%1</a></p>").arg(QString::fromLatin1(Online::kServerDownloadUrl)));
     box.exec();
 }
 

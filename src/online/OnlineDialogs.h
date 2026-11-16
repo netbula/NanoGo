@@ -34,6 +34,9 @@ QString homeworkKindName(const QString &kind);
 // 作业的做题进度键：区分服务器和账号，同一台电脑上换账号不会串
 QString homeworkKey(qint64 homeworkId);
 void changePassword(QWidget *parent);
+// 介绍免费的 NanoGo 教学服务端，带下载按钮（推广用，不登录也能打开）
+void showServerInfo(QWidget *parent);
+extern const char *const kServerDownloadUrl;
 // 棋力：0 = 未填；-k = k 级；-(100+d) = 业余 d 段；-(200+d) = 职业 d 段（与服务端一致）
 QString rankName(int rank);
 void fillRankBox(QComboBox *box, int current);

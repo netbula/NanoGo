@@ -36,6 +36,8 @@ void MainWindow::buildOnlineMenu()
         AdminDialog dlg(this);
         dlg.exec();
     });
+    m_onlineMenu->addSeparator();
+    m_onlineMenu->addAction(T("免费架设教学服务端…"), this, [this] { Online::showServerInfo(this); });
 
     m_onlineStatus = new QLabel(this);
     statusBar()->addPermanentWidget(m_onlineStatus);

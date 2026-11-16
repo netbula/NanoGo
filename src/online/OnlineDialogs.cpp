@@ -7,6 +7,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QDateTimeEdit>
 #include <QDialogButtonBox>
 #include <QFile>
@@ -82,6 +84,38 @@ QDialogButtonBox *okCancel(QDialog *dlg, const QString &okText = QString())
 }
 
 // ---- 公用 ----
+
+const char *const Online::kServerDownloadUrl = "https://github.com/netbula/NanoGo/releases?q=server-&expanded=true";
+
+void Online::showServerInfo(QWidget *parent)
+{
+    QDialog dlg(parent);
+    dlg.setWindowTitle(T("NanoGo 教学服务端"));
+    auto *lay = new QVBoxLayout(&dlg);
+    auto *text = new QTextBrowser(&dlg);
+    text->setOpenExternalLinks(true);
+    text->setHtml(T("<h3>用 NanoGo 教围棋：免费的教学服务端</h3>"
+                    "<p>学校、围棋班、带学生的老师，可以自己架一台 NanoGo 教学服务端。"
+                    "服务端程序<b>免费下载</b>，单个文件，Windows、Linux、macOS 都能用，不用装数据库，几分钟就能架好。"
+                    "老师和学生用 NanoGo 登录就能上课。</p>"
+                    "<p><b>账号和班级</b>：学生、老师、管理员三种角色，管理员开账号、分班、记段位。</p>"
+                    "<p><b>云棋谱</b>：棋谱存到服务器上，老师随时查看自己学生的对局。</p>"
+                    "<p><b>作业</b>：布置死活题、复盘、和 AI 下棋三种作业。学生做完提交，老师批改、打分、写评语。</p>"
+                    "<p><b>对局室</b>：指导棋（全班可观摩）、班级大课（老师摆棋讲解，全班实时看到）、学生比赛（老师当裁判）。"
+                    "支持中国、日本、韩国、应氏等规则，可选读秒计时。下完的棋谱自动存好，双方名字、段位、结果都写好。</p>"
+                    "<p><b>防作弊</b>：上课和比赛时学生不能用 AI，NanoGo 还会检查学生电脑上有没有运行其他围棋 AI，发现了就提醒老师。</p>"
+                    "<p>架设方法：下载后运行 <code>nanogo-server -init-admin admin</code> 建管理员，再运行 <code>nanogo-server</code> 即可。"
+                    "给局域网用加 <code>-addr 0.0.0.0:8080</code>，对外服务放在 HTTPS 后面。详见压缩包里的说明。</p>"));
+    text->setMinimumSize(560, 420);
+    lay->addWidget(text);
+    auto *bb = new QDialogButtonBox(&dlg);
+    auto *dl = bb->addButton(T("免费下载服务端"), QDialogButtonBox::AcceptRole);
+    bb->addButton(T("关闭"), QDialogButtonBox::RejectRole);
+    QObject::connect(dl, &QPushButton::clicked, &dlg, [] { QDesktopServices::openUrl(QUrl(QString::fromLatin1(kServerDownloadUrl))); });
+    QObject::connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    dlg.exec();
+}
 
 void Online::showError(QWidget *parent, const QString &title, const ApiResult &r)
 {
@@ -229,6 +263,9 @@ LoginDialog::LoginDialog(const QString &server, const QString &user, QWidget *pa
     note->setStyleSheet("color: gray;");
     note->setWordWrap(true);
     form->addRow(note);
+    auto *promo = new QLabel(QStringLiteral("<a href='#'>%1</a>").arg(T("还没有服务器？免费架设 NanoGo 教学服务端")), this);
+    connect(promo, &QLabel::linkActivated, this, [this] { Online::showServerInfo(this); });
+    form->addRow(promo);
     form->addRow(m_error);
     auto *bb = okCancel(this, T("登录"));
     m_ok = bb->button(QDialogButtonBox::Ok);
