@@ -56,6 +56,7 @@ void MainWindow::enterTsumego()
     m_aiNode = nullptr;
     m_engine->terminateAll();
     m_reviewQueryId.clear();
+    m_fillQueryId.clear();
     m_reviewLine.clear();
     m_side.clear();
     m_ownQueryId.clear();

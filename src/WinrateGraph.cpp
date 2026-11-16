@@ -70,7 +70,7 @@ void WinrateGraph::paintEvent(QPaintEvent *)
     bool leadStarted = false, wrStarted = false;
     for (int i = 0; i < m_line.size(); ++i) {
         const Analysis &a = m_line[i]->analysis;
-        if (!a.valid) { leadStarted = wrStarted = false; continue; }
+        if (!a.valid) continue;  // 缺数据的手跳过，前后直接连起来
         const QPointF pl(xOf(i), r.center().y() - a.scoreLeadBlack / maxLead * r.height() / 2);
         const QPointF pw(xOf(i), r.bottom() - a.winrateBlack * r.height());
         if (leadStarted) lead.lineTo(pl); else { lead.moveTo(pl); leadStarted = true; }
