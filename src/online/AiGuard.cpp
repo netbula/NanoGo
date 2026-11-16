@@ -24,7 +24,8 @@ bool suspicious(const QString &exe)
     const QString n = exe.toLower();
     for (const char *p : kPatterns)
         if (n.contains(QLatin1String(p))) return true;
-    return n.startsWith(QLatin1String("nanogo"));  // 另开的 NanoGo
+    // 另开的 NanoGo 客户端；nanogo-server 等其他程序不算
+    return n == QLatin1String("nanogo") || n == QLatin1String("nanogo.exe");
 }
 }
 
