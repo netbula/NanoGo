@@ -1,4 +1,5 @@
 #pragma once
+#include <QMap>
 #include "AppSettings.h"
 #include "GameTree.h"
 #include "KataGoEngine.h"
@@ -121,7 +122,14 @@ private:
     class QDockWidget *m_roomDock = nullptr;
     class RoomPanel *m_roomPanel = nullptr;
     bool m_applyingRoom = false;
-    bool m_roomStoppedEngine = false;  // 学生进房时关掉了自己的 KataGo
+    bool m_roomStoppedEngine = false;
+    // 老师同时下多盘：当前这盘在主棋盘上，其他几盘在后台跟着，轮到老师时提醒
+    QMap<qint64, class RoomSession *> m_watch;
+    class QTimer *m_simulTimer = nullptr;
+    bool m_switchingRoom = false;
+    void refreshSimul();
+    void updateSimulList();
+    void switchRoom(qint64 id);  // 学生进房时关掉了自己的 KataGo
     void checkRoomAi();
     class QTimer *m_aiGuard = nullptr;
     QStringList m_aiFound;

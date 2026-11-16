@@ -47,6 +47,7 @@ private:
     QComboBox *m_student = nullptr, *m_color = nullptr, *m_class, *m_rules;
     QComboBox *m_black = nullptr, *m_white = nullptr;  // 比赛的双方
     class QDoubleSpinBox *m_komi;
+    class QSpinBox *m_handicap = nullptr;  // 让子数，0 = 分先
     class QCheckBox *m_useClock = nullptr;
     class QSpinBox *m_mainMin = nullptr, *m_periods = nullptr, *m_periodSec = nullptr;
     QRadioButton *m_fromBoard;
@@ -62,9 +63,13 @@ public:
     void refresh();
     void addChat(const QJsonArray &messages);
     void note(const QString &text);  // 灰色的系统提示
+    // 老师同时下的其他几盘：轮到老师的排前面、加粗；点一下切过去
+    struct OtherGame { qint64 id; QString title; bool myTurn; };
+    void setOtherGames(const QList<OtherGame> &games);
 
 signals:
     void leaveRequested();
+    void switchRequested(qint64 roomId);
     void closeRequested();
 
 private:
@@ -74,6 +79,8 @@ private:
     QLabel *m_title, *m_status;
     QLabel *m_clockLabel = nullptr;
     QListWidget *m_online;
+    QLabel *m_otherLabel = nullptr;
+    QListWidget *m_others = nullptr;
     QTextBrowser *m_chat;
     QLineEdit *m_input;
     QComboBox *m_handTo = nullptr;
