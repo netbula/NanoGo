@@ -371,6 +371,18 @@ RoomPanel::RoomPanel(RoomSession *session, QWidget *parent) : QWidget(parent), m
         });
         connect(m_takeBtn, &QPushButton::clicked, this, [this] { m_s->setControl(0); });
     }
+    if (m_s->canManage() && !m_s->isLecture()) {
+        m_otherLabel = new QLabel(T("你的其他对局（点一下切换）："), this);
+        m_others = new QListWidget(this);
+        m_others->setMaximumHeight(120);
+        lay->addWidget(m_otherLabel);
+        lay->addWidget(m_others);
+        m_otherLabel->hide();
+        m_others->hide();
+        connect(m_others, &QListWidget::itemClicked, this, [this](QListWidgetItem *it) {
+            emit switchRequested(it->data(Qt::UserRole).toLongLong());
+        });
+    }
     lay->addWidget(new QLabel(T("聊天："), this));
     m_chat = new QTextBrowser(this);
     lay->addWidget(m_chat, 1);
@@ -390,6 +402,28 @@ RoomPanel::RoomPanel(RoomSession *session, QWidget *parent) : QWidget(parent), m
     lay->addLayout(btns);
     connect(leaveBtn, &QPushButton::clicked, this, &RoomPanel::leaveRequested);
     refresh();
+}
+
+void RoomPanel::setOtherGames(const QList<OtherGame> &games)
+{
+    if (!m_others) return;
+    m_others->clear();
+    QList<OtherGame> sorted = games;
+    std::stable_sort(sorted.begin(), sorted.end(), [](const OtherGame &a, const OtherGame &b) { return a.myTurn && !b.myTurn; });
+    for (const OtherGame &g : sorted) {
+        auto *it = new QListWidgetItem((g.myTurn ? T("● 轮到你：") : T("○ 等学生：")) + g.title, m_others);
+        it->setData(Qt::UserRole, g.id);
+        if (g.myTurn) {
+            QFont f = it->font();
+            f.setBold(true);
+            it->setFont(f);
+            it->setForeground(QColor(0xc0, 0x30, 0x30));
+        } else {
+            it->setForeground(Qt::gray);
+        }
+    }
+    m_otherLabel->setVisible(!games.isEmpty());
+    m_others->setVisible(!games.isEmpty());
 }
 
 void RoomPanel::refresh()

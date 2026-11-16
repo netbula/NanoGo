@@ -18,12 +18,18 @@
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QTimer>
+#include <QSet>
+#include <QJsonArray>
+#include <QApplication>
 
 void MainWindow::openRooms()
 {
     if (!ApiClient::instance()->loggedIn()) return;
     RoomsDialog dlg(this, this);
-    if (dlg.exec() == QDialog::Accepted && dlg.chosenRoom()) enterRoom(dlg.chosenRoom());
+    if (dlg.exec() == QDialog::Accepted && dlg.chosenRoom()) {
+        if (m_room && !ApiClient::instance()->isStudent()) switchRoom(dlg.chosenRoom());  // 老师再开一盘：前一盘在后台继续
+        else enterRoom(dlg.chosenRoom());
+    }
 }
 
 bool MainWindow::roomBlocksAi() const
@@ -63,7 +69,7 @@ void MainWindow::enterRoom(qint64 id)
         }
     }
     if (m_tsMode) exitTsumego();
-    autosave();  // 进房前的棋局存好，离开时恢复
+    if (!m_switchingRoom) autosave();  // 进房前的棋局存好，离开时恢复（在对局之间切换时不动）
     m_aiColor = Stone::Empty;
     m_aiQueryId.clear();
     m_aiNode = nullptr;
@@ -87,6 +93,15 @@ void MainWindow::enterRoom(qint64 id)
         }
         setWindowTitle(T("NanoGo 围棋 - 对局室：%1").arg(m_room->title()));
         m_roomPanel->note(T("已进入对局室。"));
+        connect(m_roomPanel, &RoomPanel::switchRequested, this, &MainWindow::switchRoom);
+        if (m_room->canManage() && !m_room->isLecture()) {
+            if (!m_simulTimer) {
+                m_simulTimer = new QTimer(this);
+                connect(m_simulTimer, &QTimer::timeout, this, &MainWindow::refreshSimul);
+            }
+            m_simulTimer->start(15000);
+            refreshSimul();
+        }
         if (ApiClient::instance()->isStudent()) {
             m_roomPanel->note(T("对局期间 NanoGo 会检查这台电脑上有没有运行其他围棋 AI，发现了会告诉老师。"));
             m_aiFound.clear();
@@ -186,6 +201,11 @@ void MainWindow::leaveRoom()
 {
     if (!m_room) return;
     if (m_aiGuard) m_aiGuard->stop();
+    if (!m_switchingRoom) {
+        if (m_simulTimer) m_simulTimer->stop();
+        for (RoomSession *w : std::as_const(m_watch)) { w->stop(); w->deleteLater(); }
+        m_watch.clear();
+    }
     m_room->stop();
     m_room->deleteLater();
     m_room = nullptr;
@@ -199,12 +219,77 @@ void MainWindow::leaveRoom()
     m_engine->terminateAll();
     clearQueries();
     setWindowTitle(T("NanoGo 围棋"));
+    if (m_switchingRoom) return;  // 马上进下一盘
     restoreAutosave();
     if (m_roomStoppedEngine) {  // 学生离开对局室：AI 恢复
         m_roomStoppedEngine = false;
         restartEngine();
     }
     positionChanged();
+}
+
+// 老师同时下多盘：切到另一盘，当前这盘转到后台
+void MainWindow::switchRoom(qint64 id)
+{
+    if (m_room && m_room->id() == id) return;
+    m_switchingRoom = true;
+    if (RoomSession *w = m_watch.take(id)) { w->stop(); w->deleteLater(); }
+    leaveRoom();
+    enterRoom(id);
+    m_switchingRoom = false;
+    QTimer::singleShot(0, this, &MainWindow::refreshSimul);
+}
+
+// 找出老师自己开着的其他指导棋，在后台跟着
+void MainWindow::refreshSimul()
+{
+    if (!m_room || !m_room->canManage() || m_room->isLecture()) return;
+    const qint64 me = ApiClient::instance()->myId();
+    ApiClient::instance()->get(QStringLiteral("/rooms"), [this, me](const ApiResult &r) {
+        if (!r.ok || !m_room) return;
+        QSet<qint64> open;
+        for (const QJsonValue &v : r.data.toArray()) {
+            const QJsonObject o = v.toObject();
+            const qint64 id = qint64(o["id"].toDouble());
+            if (qint64(o["owner_id"].toDouble()) != me || o["kind"].toString() != QLatin1String("game") || o["match"].toBool()
+                || o["status"].toString(QStringLiteral("open")) != QLatin1String("open") || id == m_room->id())
+                continue;
+            open.insert(id);
+            if (m_watch.contains(id)) continue;
+            auto *w = new RoomSession(id, this);
+            m_watch.insert(id, w);
+            connect(w, &RoomSession::statusChanged, this, [this, w] {
+                const bool myTurn = !w->myColor().isEmpty() && w->myColor() == w->toMove();
+                if (myTurn && !w->property("myTurn").toBool()) {
+                    statusBar()->showMessage(T("%1：轮到你走了。").arg(w->title()), 8000);
+                    QApplication::alert(this);
+                }
+                w->setProperty("myTurn", myTurn);
+                updateSimulList();
+            });
+            connect(w, &RoomSession::ended, this, [this, id] {
+                if (RoomSession *x = m_watch.take(id)) { x->stop(); x->deleteLater(); }
+                updateSimulList();
+            });
+            w->start();
+        }
+        for (auto it = m_watch.begin(); it != m_watch.end();) {
+            if (!open.contains(it.key())) { it.value()->stop(); it.value()->deleteLater(); it = m_watch.erase(it); }
+            else ++it;
+        }
+        updateSimulList();
+    });
+}
+
+void MainWindow::updateSimulList()
+{
+    if (!m_roomPanel) return;
+    QList<RoomPanel::OtherGame> games;
+    for (RoomSession *w : std::as_const(m_watch)) {
+        if (w->room().isEmpty()) continue;  // 还没读到房间信息
+        games << RoomPanel::OtherGame{w->id(), w->title(), !w->myColor().isEmpty() && w->myColor() == w->toMove()};
+    }
+    m_roomPanel->setOtherGames(games);
 }
 
 // 防作弊：定时查一次；有变化（新发现或都关掉了）就报告给老师
