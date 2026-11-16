@@ -35,10 +35,12 @@ set(SOURCES
     src/TsumegoEditor.h src/TsumegoEditor.cpp
     src/I18n.h src/I18n.cpp
     src/HardwareInfo.h src/HardwareInfo.cpp
-    src/MainWindowOnline.cpp
+    src/MainWindowOnline.cpp src/MainWindowRoom.cpp src/Rules.h src/Rules.cpp
     src/online/ApiClient.h src/online/ApiClient.cpp
     src/online/OnlineDialogs.h src/online/OnlineDialogs.cpp
     src/online/SgfPicker.h src/online/SgfPicker.cpp
+    src/online/RoomSession.h src/online/RoomSession.cpp
+    src/online/RoomUi.h src/online/RoomUi.cpp
 )
 
 qt_add_executable(NanoGo ${SOURCES})

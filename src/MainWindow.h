@@ -58,6 +58,7 @@ private:
     void openSgf();
     bool loadSgfContent(const QString &text, const QString &displayName, const QString &path);
     void saveSgf();
+    bool editGameInfo();
     void openSettings();
     void restartEngine();
     void appendLog(const QString &line);
@@ -104,6 +105,22 @@ private:
     void addOnlineToolbar(class QToolBar *tb);
     void refreshOnline();
     void onlineLogin();
+    // 对局室（MainWindowRoom.cpp）
+    void openRooms();
+    void enterRoom(qint64 id);
+    void leaveRoom();
+    void applyRoomBoard(const QString &sgf, const QString &cursor);
+    void pushRoomBoard();
+    QString roomCursor() const;
+    bool roomBlocksAi() const;
+    bool roomAllowsClick();
+    bool askRoomResult(QString *result);
+    void clearQueries();  // 换棋盘内容前清掉还指向旧节点的引擎查询
+    class RoomSession *m_room = nullptr;
+    class QDockWidget *m_roomDock = nullptr;
+    class RoomPanel *m_roomPanel = nullptr;
+    bool m_applyingRoom = false;
+    QAction *m_roomsAct = nullptr;
     QMenu *m_onlineMenu = nullptr;
     QAction *m_loginAct = nullptr, *m_tbLoginAct = nullptr, *m_pwAct = nullptr, *m_cloudAct = nullptr, *m_hwAct = nullptr, *m_adminAct = nullptr;
     QLabel *m_onlineStatus = nullptr;

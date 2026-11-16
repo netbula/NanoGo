@@ -56,6 +56,20 @@ void setRow(QTableWidget *t, int row, const QStringList &cells)
     for (int c = 0; c < cells.size(); ++c) t->setItem(row, c, new QTableWidgetItem(cells[c]));
 }
 
+// 棋谱自己的标题（SGF 的 GN，保存棋谱时填的）
+QString sgfTitle(const QString &sgf)
+{
+    GameTree t;
+    if (!Sgf::load(sgf, t, nullptr)) return {};
+    return t.root()->extraProps.value("GN").value(0).trimmed();
+}
+// 上传文件的标题：有棋谱标题用它，没有就用文件名
+QString fileTitle(const QString &sgf, const QString &path)
+{
+    const QString t = sgfTitle(sgf);
+    return t.isEmpty() ? QFileInfo(path).completeBaseName() : t;
+}
+
 QDialogButtonBox *okCancel(QDialog *dlg, const QString &okText = QString())
 {
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dlg);
@@ -347,7 +361,9 @@ void CloudGamesDialog::openSelected()
 void CloudGamesDialog::upload()
 {
     bool ok = false;
-    const QString title = QInputDialog::getText(this, T("上传当前棋局"), T("标题（可以不填）："), QLineEdit::Normal, QString(), &ok);
+    // 默认用保存棋谱时填的标题
+    const QString title = QInputDialog::getText(this, T("上传当前棋局"), T("标题（可以不填）："), QLineEdit::Normal,
+                                                sgfTitle(m_host->currentGameSgf()), &ok);
     if (!ok) return;
     QPointer<CloudGamesDialog> self(this);
     api()->post("/games", QJsonObject{{"sgf", m_host->currentGameSgf()}, {"title", title}}, [self](const ApiResult &r) {
@@ -384,7 +400,7 @@ void CloudGamesDialog::uploadFiles()
             continue;
         }
         const QString sgf = Sgf::decode(f.readAll());
-        api()->post("/games", QJsonObject{{"sgf", sgf}, {"title", QFileInfo(path).completeBaseName()}}, [self, name, failed, left](const ApiResult &r) {
+        api()->post("/games", QJsonObject{{"sgf", sgf}, {"title", fileTitle(sgf, path)}}, [self, name, failed, left](const ApiResult &r) {
             if (!r.ok) failed->append(QStringLiteral("%1（%2）").arg(name, r.message()));
             if (--*left > 0 || !self) return;
             self->m_uploadFilesBtn->setEnabled(true);

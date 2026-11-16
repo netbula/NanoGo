@@ -44,6 +44,11 @@ QString MainWindow::tsProgressGroupFor(const QString &key)
 void MainWindow::enterTsumego()
 {
     if (m_tsMode) return;
+    if (m_room) {
+        m_tsAct->setChecked(false);
+        QMessageBox::information(this, T("死活题练习"), T("请先离开对局室。"));
+        return;
+    }
     if (m_tsProblems.isEmpty()) {
         m_tsProblems = Tsumego::builtin();
         m_tsKey = QStringLiteral("builtin");
