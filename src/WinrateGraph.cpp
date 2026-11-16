@@ -56,7 +56,9 @@ void WinrateGraph::paintEvent(QPaintEvent *)
     for (int m = 50; m < n; m += 50)
         p.drawText(QRectF(xOf(m) - 20, r.bottom() + 2, 40, 14), Qt::AlignCenter, QString::number(m));
 
-    if (m_line.size() < 2) {
+    bool any = false;
+    for (const GameNode *nd : m_line) if (nd->analysis.valid) { any = true; break; }
+    if (m_line.size() < 2 || !any) {
         p.drawText(r, Qt::AlignCenter, T("走几步或打开棋谱后，点“分析整盘棋”就能看到胜率曲线"));
         return;
     }

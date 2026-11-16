@@ -445,6 +445,7 @@ void MainWindow::buildUi()
         m_tree.setCurrent(n);
         positionChanged();
     });
+    m_graph->setMinimumHeight(80);  // 胜率图至少留出能看清的高度
     rv->addWidget(m_graph, 1);
     m_reviewPanel = reviewPanel;
 
@@ -483,6 +484,9 @@ void MainWindow::buildUi()
     left->addWidget(reviewPanel);
     left->addWidget(m_tsPanel);
     m_leftSplit = left;
+    // 复盘面板和做题面板不能被拖到 0 高度，免得胜率图“消失”
+    left->setCollapsible(1, false);
+    left->setCollapsible(2, false);
     left->setStretchFactor(0, 5);
     left->setStretchFactor(1, 1);
     left->setSizes({700, 170});
@@ -1032,6 +1036,18 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
         const bool oneShot = m_aiOneShot;
         m_aiOneShot = false;
         if (m_aiNode != m_tree.current()) return;
+        // 顺手把 AI 算出的胜率记到这一手上，胜率曲线就能边下边画（不覆盖更细的分析，也不存候选点免得泄露提示）
+        {
+            const QJsonObject root = resp.value("rootInfo").toObject();
+            Analysis &a = m_aiNode->analysis;
+            if (!root.isEmpty() && !a.valid) {
+                a.valid = true;
+                a.winrateBlack = root.value("winrate").toDouble();
+                a.scoreLeadBlack = root.value("scoreLead").toDouble();
+                a.visits = root.value("visits").toInt();
+                refreshReview();
+            }
+        }
         if (!oneShot && (m_aiColor == Stone::Empty || m_tree.toPlay() != m_aiColor)) return;
         const QJsonArray infos = resp.value("moveInfos").toArray();
         QString best;
