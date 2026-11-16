@@ -40,6 +40,9 @@ QString ApiResult::message() const
         {"bad_sgf", "不是有效的 SGF 棋谱。"},
         {"bad_rank", "棋力不在可选范围内。"},
         {"class_not_found", "找不到目标班级，可能已被删除。"},
+        {"not_your_turn", "现在不轮到你走。"},
+        {"stale", "棋盘刚被别人改过，已换成最新的。"},
+        {"room_closed", "对局室已经结束。"},
     };
     if (texts.contains(code)) return T(texts.value(code));
     const QString detail = data.toObject().value("message").toString();

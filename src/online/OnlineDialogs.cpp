@@ -281,11 +281,13 @@ CloudGamesDialog::CloudGamesDialog(OnlineHost *host, QWidget *parent) : QDialog(
     m_uploadBtn = new QPushButton(T("上传当前棋局…"), this);
     m_uploadFilesBtn = new QPushButton(T("从文件上传…"), this);
     m_uploadFilesBtn->setToolTip(T("选一个或多个 SGF 棋谱文件上传到云棋谱"));
+    m_renameBtn = new QPushButton(T("改标题…"), this);
     m_deleteBtn = new QPushButton(T("删除"), this);
     auto *closeBtn = new QPushButton(T("关闭"), this);
     btns->addWidget(openBtn);
     btns->addWidget(m_uploadBtn);
     btns->addWidget(m_uploadFilesBtn);
+    btns->addWidget(m_renameBtn);
     btns->addWidget(m_deleteBtn);
     btns->addStretch();
     btns->addWidget(closeBtn);
@@ -293,6 +295,7 @@ CloudGamesDialog::CloudGamesDialog(OnlineHost *host, QWidget *parent) : QDialog(
     connect(openBtn, &QPushButton::clicked, this, &CloudGamesDialog::openSelected);
     connect(m_uploadBtn, &QPushButton::clicked, this, &CloudGamesDialog::upload);
     connect(m_uploadFilesBtn, &QPushButton::clicked, this, &CloudGamesDialog::uploadFiles);
+    connect(m_renameBtn, &QPushButton::clicked, this, &CloudGamesDialog::renameSelected);
     connect(m_deleteBtn, &QPushButton::clicked, this, &CloudGamesDialog::deleteSelected);
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::reject);
     resize(760, 460);
@@ -312,6 +315,7 @@ void CloudGamesDialog::reload()
     m_uploadBtn->setEnabled(mine);
     m_uploadFilesBtn->setEnabled(mine);
     m_deleteBtn->setEnabled(mine || api()->isAdmin());
+    m_renameBtn->setEnabled(mine || api()->isAdmin());
     QPointer<CloudGamesDialog> self(this);
     api()->get(QStringLiteral("/games?owner=%1").arg(owner), [self](const ApiResult &r) {
         if (!self) return;
@@ -357,8 +361,13 @@ void CloudGamesDialog::uploadFiles()
 {
     // 记住上次选文件的文件夹，下次直接打开那里
     QSettings st(QDir(AppSettings::dataDir()).filePath("picker.ini"), QSettings::IniFormat);
-    const QStringList paths = QFileDialog::getOpenFileNames(this, T("从文件上传…"), st.value("uploadDir").toString(),
-                                                            T("SGF 棋谱 (*.sgf);;所有文件 (*)"));
+    // 确定按钮写成“上传”，不叫“打开”
+    QFileDialog fd(this, T("选择要上传的棋谱（可以多选）"), st.value("uploadDir").toString(), T("SGF 棋谱 (*.sgf);;所有文件 (*)"));
+    fd.setFileMode(QFileDialog::ExistingFiles);
+    fd.setLabelText(QFileDialog::Accept, T("上传"));
+    fd.setLabelText(QFileDialog::Reject, T("取消"));
+    if (fd.exec() != QDialog::Accepted) return;
+    const QStringList paths = fd.selectedFiles();
     if (paths.isEmpty()) return;
     st.setValue("uploadDir", QFileInfo(paths.first()).absolutePath());
     m_uploadFilesBtn->setEnabled(false);
@@ -384,6 +393,22 @@ void CloudGamesDialog::uploadFiles()
                 QMessageBox::warning(self, T("从文件上传…"), T("这些文件没有传上去：\n%1").arg(failed->join('\n')));
         });
     }
+}
+
+void CloudGamesDialog::renameSelected()
+{
+    const int row = m_table->currentRow();
+    if (row < 0 || row >= m_games.size()) return;
+    const QJsonObject g = m_games[row].toObject();
+    bool ok = false;
+    const QString title = QInputDialog::getText(this, T("改标题"), T("新标题："), QLineEdit::Normal, g["title"].toString(), &ok);
+    if (!ok) return;
+    QPointer<CloudGamesDialog> self(this);
+    api()->patch(QStringLiteral("/games/%1").arg(idOf(g)), QJsonObject{{"title", title.trimmed()}}, [self](const ApiResult &r) {
+        if (!self) return;
+        if (!r.ok) Online::showError(self, T("改标题"), r);
+        self->reload();
+    });
 }
 
 void CloudGamesDialog::deleteSelected()
