@@ -6,6 +6,7 @@
 #include "Review.h"
 #include "EngineInstaller.h"
 #include "Tsumego.h"
+#include "online/OnlineDialogs.h"
 #include <QJsonArray>
 #include <QRect>
 #include <QHash>
@@ -19,11 +20,20 @@ class QListWidget;
 class QProgressDialog;
 class QComboBox;
 
-class MainWindow : public QMainWindow {
+class MainWindow : public QMainWindow, public OnlineHost {
     Q_OBJECT
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
+
+    // 在线功能（MainWindowOnline.cpp）
+    QString currentGameSgf() const override;
+    void loadSgfText(const QString &sgf, const QString &title) override;
+    bool startTsumegoSet(const QString &key, const QString &name, const QString &sgf) override;
+    int tsumegoSolved(const QString &key, int total) const override;
+    void startAiGameAt(int level) override;
+    void fillStrengthChoices(QComboBox *box) const override;
+    QString strengthLabel(int level) const override;
 
 protected:
     void closeEvent(QCloseEvent *e) override;
@@ -46,6 +56,7 @@ private:
     void restoreAutosave();
     void onModelList(const QList<NetworkInfo> &list);
     void openSgf();
+    bool loadSgfContent(const QString &text, const QString &displayName, const QString &path);
     void saveSgf();
     void openSettings();
     void restartEngine();
@@ -86,6 +97,16 @@ private:
     void tsShowAnswer();
     void tsRefresh();
     QString tsProgressGroup() const;
+    static QString tsProgressGroupFor(const QString &key);
+    bool useTsProblems(const QList<TsumegoProblem> &list, const QString &key, const QString &name);
+    // 在线：菜单、登录状态
+    void buildOnlineMenu();
+    void addOnlineToolbar(class QToolBar *tb);
+    void refreshOnline();
+    void onlineLogin();
+    QMenu *m_onlineMenu = nullptr;
+    QAction *m_loginAct = nullptr, *m_tbLoginAct = nullptr, *m_pwAct = nullptr, *m_cloudAct = nullptr, *m_hwAct = nullptr, *m_adminAct = nullptr;
+    QLabel *m_onlineStatus = nullptr;
     enum class TsState { Thinking, UserTurn, Replying, Solved, Failed };
     bool m_tsMode = false;
     QList<TsumegoProblem> m_tsProblems;

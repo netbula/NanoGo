@@ -56,7 +56,7 @@ static QString rankProfile(int v)
 }
 static QString rankLabel(int v) { return v <= -100 ? T("%1 段").arg(-v - 100) : T("%1 级").arg(-v); }
 
-static void fillStrengthBox(QComboBox *box, bool verbose)
+void fillStrengthBox(QComboBox *box, bool verbose)
 {
     for (auto [label, v] : std::initializer_list<std::pair<const char *, int>>{
              {"直觉（1 次）", 1}, {"快（20 次）", 20}, {"中（100 次）", 100}, {"强（400 次）", 400},
@@ -69,7 +69,7 @@ static void fillStrengthBox(QComboBox *box, bool verbose)
         box->addItem(verbose ? T("像 %1 年的职业棋手那样下").arg(year) : T("职业 %1 年").arg(year), -1000 - year);
 }
 
-static QString strengthText(int v) { return proYear(v) ? T("职业 %1 年").arg(proYear(v)) : isRank(v) ? T("野狐 %1").arg(rankLabel(v)) : T("每步 %1 次计算").arg(v); }
+QString strengthText(int v) { return proYear(v) ? T("职业 %1 年").arg(proYear(v)) : isRank(v) ? T("野狐 %1").arg(rankLabel(v)) : T("每步 %1 次计算").arg(v); }
 
 
 MainWindow::MainWindow(QWidget *parent)
@@ -634,6 +634,8 @@ void MainWindow::buildUi()
     autoUpd->setChecked(m_settings.autoUpdateModel);
     connect(autoUpd, &QAction::toggled, this, [this](bool on) { m_settings.autoUpdateModel = on; m_settings.save(); });
 
+    buildOnlineMenu();
+
     QMenu *help = menuBar()->addMenu(T("帮助(&H)"));
     help->addAction(T("关于 NanoGo…"), this, &MainWindow::showAbout);
     help->addAction(T("打开日志文件夹"), this, [] {
@@ -695,6 +697,7 @@ void MainWindow::buildUi()
     tb->addSeparator();
     tb->addAction(countA);
     tb->addAction(m_tsAct);
+    addOnlineToolbar(tb);
 }
 
 // 按段位下棋需要 KataGo 的人类风格模型：没有就问要不要下载，已下载但引擎没加载就重启引擎
@@ -805,12 +808,18 @@ void MainWindow::openSgf()
     const QString path = QFileDialog::getOpenFileName(this, T("打开棋谱"), QFileInfo(m_sgfPath).absolutePath(),
                                                       T("SGF 棋谱 (*.sgf);;所有文件 (*)"));
     if (path.isEmpty()) return;
-    if (m_tsMode) exitTsumego();
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
         QMessageBox::warning(this, T("打开失败"), T("无法读取文件：%1").arg(path));
         return;
     }
+    loadSgfContent(Sgf::decode(f.readAll()), QFileInfo(path).fileName(), path);
+}
+
+// 换上一盘棋谱（来自文件或服务器）
+bool MainWindow::loadSgfContent(const QString &text, const QString &displayName, const QString &path)
+{
+    if (m_tsMode) exitTsumego();
     m_aiColor = Stone::Empty;
     m_aiQueryId.clear();
     m_engine->terminateAll();
@@ -824,14 +833,15 @@ void MainWindow::openSgf()
     m_queryId.clear();
     m_queryNode = nullptr;
     QString err;
-    if (!Sgf::load(Sgf::decode(f.readAll()), m_tree, &err)) {
+    if (!Sgf::load(text, m_tree, &err)) {
         QMessageBox::warning(this, T("打开失败"), err);
         newGame();
-        return;
+        return false;
     }
     m_sgfPath = path;
-    setWindowTitle(T("NanoGo 围棋 - %1").arg(QFileInfo(path).fileName()));
+    setWindowTitle(T("NanoGo 围棋 - %1").arg(displayName));
     positionChanged();
+    return true;
 }
 
 void MainWindow::saveSgf()

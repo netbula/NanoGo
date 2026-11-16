@@ -70,6 +70,8 @@ void AppSettings::load()
     komi = s.value("game/komi", komi).toDouble();
     rules = s.value("game/rules", rules).toString();
     autoUpdateModel = s.value("model/autoUpdate", autoUpdateModel).toBool();
+    serverUrl = s.value("online/server").toString();
+    serverUser = s.value("online/user").toString();
     lastModelCheck = s.value("model/lastCheck").toDateTime();
     if (katagoPath.isEmpty() || modelPath.isEmpty() || !QFileInfo::exists(katagoPath) || !QFileInfo::exists(modelPath)) {
         autoDetect();
@@ -91,6 +93,8 @@ void AppSettings::save() const
     s.setValue("game/komi", komi);
     s.setValue("game/rules", rules);
     s.setValue("model/autoUpdate", autoUpdateModel);
+    s.setValue("online/server", serverUrl);
+    s.setValue("online/user", serverUser);
     s.setValue("model/lastCheck", lastModelCheck);
 }
 

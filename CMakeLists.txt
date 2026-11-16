@@ -35,6 +35,9 @@ set(SOURCES
     src/TsumegoEditor.h src/TsumegoEditor.cpp
     src/I18n.h src/I18n.cpp
     src/HardwareInfo.h src/HardwareInfo.cpp
+    src/MainWindowOnline.cpp
+    src/online/ApiClient.h src/online/ApiClient.cpp
+    src/online/OnlineDialogs.h src/online/OnlineDialogs.cpp
 )
 
 qt_add_executable(NanoGo ${SOURCES})
@@ -45,7 +48,7 @@ qt_add_resources(NanoGo "icons" PREFIX "/" BASE res FILES ${NANOGO_ICON_PNGS})
 qt_add_resources(NanoGo "tsumego" PREFIX "/" BASE res FILES res/tsumego/basic.sgf)
 set_target_properties(NanoGo PROPERTIES WIN32_EXECUTABLE ON)
 if(WIN32)
-    target_link_libraries(NanoGo PRIVATE dxgi)
+    target_link_libraries(NanoGo PRIVATE dxgi advapi32)  # advapi32：Windows 凭据管理器（记住登录）
     # exe 文件图标（资源管理器、桌面快捷方式里显示）。rc 文件里写绝对路径，避免找不到 ico
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/nanogo_icon.rc" "IDI_ICON1 ICON \"${CMAKE_CURRENT_SOURCE_DIR}/res/nanogo.ico\"\n")
     target_sources(NanoGo PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/nanogo_icon.rc")

@@ -33,7 +33,12 @@ QString colorStr(Stone s) { return s == Stone::White ? QStringLiteral("W") : QSt
 
 QString MainWindow::tsProgressGroup() const
 {
-    return QString::fromLatin1(QCryptographicHash::hash(m_tsKey.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
+    return tsProgressGroupFor(m_tsKey);
+}
+
+QString MainWindow::tsProgressGroupFor(const QString &key)
+{
+    return QString::fromLatin1(QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
 }
 
 void MainWindow::enterTsumego()
@@ -106,17 +111,24 @@ void MainWindow::openTsCollection()
         QMessageBox::warning(this, T("打开题库"), T("无法打开文件：%1").arg(path));
         return;
     }
-    const QList<TsumegoProblem> list = Tsumego::loadCollection(Sgf::decode(f.readAll()));
+    useTsProblems(Tsumego::loadCollection(Sgf::decode(f.readAll())), QFileInfo(path).absoluteFilePath(),
+                  QFileInfo(path).completeBaseName());
+}
+
+// 换一组题目进入做题模式；key 决定做题进度存在哪里
+bool MainWindow::useTsProblems(const QList<TsumegoProblem> &list, const QString &key, const QString &name)
+{
     if (list.isEmpty()) {
         QMessageBox::warning(this, T("打开题库"), T("这个文件里没有找到死活题（需要有摆好的黑白子）。"));
-        return;
+        return false;
     }
     m_tsProblems = list;
-    m_tsKey = QFileInfo(path).absoluteFilePath();
-    m_tsName = QFileInfo(path).completeBaseName();
-    if (!m_tsMode) { enterTsumego(); return; }
+    m_tsKey = key;
+    m_tsName = name;
+    if (!m_tsMode) { enterTsumego(); return true; }
     QSettings st(QDir(AppSettings::dataDir()).filePath("tsumego.ini"), QSettings::IniFormat);
     loadTsProblem(st.value(tsProgressGroup() + "/last", 0).toInt());
+    return true;
 }
 
 void MainWindow::loadTsProblem(int i)
