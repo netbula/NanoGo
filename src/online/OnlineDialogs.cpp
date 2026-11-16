@@ -28,6 +28,7 @@
 #include <QVBoxLayout>
 #include <memory>
 #include "../Sgf.h"
+#include "SgfPicker.h"
 
 namespace {
 ApiClient *api() { return ApiClient::instance(); }
@@ -655,14 +656,23 @@ AssignHomeworkDialog::AssignHomeworkDialog(OnlineHost *host, qint64 classId, QWi
     auto *tsLay = new QHBoxLayout(m_tsRow);
     tsLay->setContentsMargins(0, 0, 0, 0);
     m_problemSet = new QComboBox(m_tsRow);
-    auto *uploadPs = new QPushButton(T("从文件上传题集…"), m_tsRow);
+    auto *browsePs = new QPushButton(T("浏览选择…"), m_tsRow);
+    browsePs->setToolTip(T("从服务器题集、自带题、本地文件或文件夹里挑题，可以只选其中几道"));
     tsLay->addWidget(m_problemSet, 1);
-    tsLay->addWidget(uploadPs);
+    tsLay->addWidget(browsePs);
     form->addRow(T("题集："), m_tsRow);
-    connect(uploadPs, &QPushButton::clicked, this, &AssignHomeworkDialog::uploadProblemSet);
+    connect(browsePs, &QPushButton::clicked, this, &AssignHomeworkDialog::browseProblems);
 
-    m_reviewRow = new QLabel(T("把当前棋盘上的棋谱上传，作为复盘用的棋谱。"), this);
+    m_reviewRow = new QWidget(this);
+    auto *rvLay = new QHBoxLayout(m_reviewRow);
+    rvLay->setContentsMargins(0, 0, 0, 0);
+    m_gameLabel = new QLabel(T("当前棋盘上的棋谱"), m_reviewRow);
+    auto *browseGame = new QPushButton(T("浏览选择…"), m_reviewRow);
+    browseGame->setToolTip(T("从当前棋盘、云棋谱、本地文件或文件夹里挑一盘棋"));
+    rvLay->addWidget(m_gameLabel, 1);
+    rvLay->addWidget(browseGame);
     form->addRow(T("棋谱："), m_reviewRow);
+    connect(browseGame, &QPushButton::clicked, this, &AssignHomeworkDialog::browseGame);
 
     m_aiRow = new QWidget(this);
     auto *aiLay = new QHBoxLayout(m_aiRow);
@@ -744,19 +754,36 @@ void AssignHomeworkDialog::loadProblemSets(qint64 select)
     });
 }
 
-void AssignHomeworkDialog::uploadProblemSet()
+void AssignHomeworkDialog::browseProblems()
 {
-    const QString path = QFileDialog::getOpenFileName(this, T("从文件上传题集…"), QString(), T("SGF 题目 (*.sgf);;所有文件 (*)"));
-    if (path.isEmpty()) return;
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly)) return;
-    const QString sgf = Sgf::decode(f.readAll());
+    ProblemPickerDialog dlg(this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    const QList<TsumegoProblem> list = dlg.problems();
+    if (list.isEmpty()) return;
+    QString name = dlg.collectionName();
+    if (m_title->text().trimmed().isEmpty()) m_title->setText(name);
+    if (const qint64 id = dlg.serverSetId()) { loadProblemSets(id); return; }
+    // 自带题、本地题或只挑了几道：存成服务器上的一个新题集
+    if (!dlg.allChecked()) name = T("%1（选 %2 题）").arg(name).arg(list.size());
+    m_ok->setEnabled(false);
     QPointer<AssignHomeworkDialog> self(this);
-    api()->post("/problemsets", QJsonObject{{"title", QFileInfo(path).completeBaseName()}, {"sgf", sgf}}, [self](const ApiResult &r) {
+    api()->post("/problemsets", QJsonObject{{"title", name}, {"sgf", Tsumego::saveCollection(list)}}, [self](const ApiResult &r) {
         if (!self) return;
-        if (!r.ok) { Online::showError(self, T("从文件上传题集…"), r); return; }
+        self->m_ok->setEnabled(true);
+        if (!r.ok) { Online::showError(self, T("选择死活题"), r); return; }
         self->loadProblemSets(idOf(r.data.toObject()));
     });
+}
+
+void AssignHomeworkDialog::browseGame()
+{
+    GamePickerDialog dlg(m_host, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    m_gameId = dlg.gameId();
+    m_gameSgf = m_gameId ? QString() : dlg.sgf();
+    const QString t = dlg.title();
+    m_gameLabel->setText(t.isEmpty() ? T("当前棋盘上的棋谱") : t);
+    if (m_title->text().trimmed().isEmpty() && !t.isEmpty()) m_title->setText(T("复盘：%1").arg(t));
 }
 
 void AssignHomeworkDialog::submit()
@@ -792,7 +819,9 @@ void AssignHomeworkDialog::submit()
         });
     };
     if (kind != "review") { create(body); return; }
-    api()->post("/games", QJsonObject{{"sgf", m_host->currentGameSgf()}, {"title", title}}, [self, body, create](const ApiResult &r) mutable {
+    if (m_gameId) { body["game_id"] = m_gameId; create(body); return; }
+    const QString sgf = m_gameSgf.isEmpty() ? m_host->currentGameSgf() : m_gameSgf;
+    api()->post("/games", QJsonObject{{"sgf", sgf}, {"title", title}}, [self, body, create](const ApiResult &r) mutable {
         if (!self) return;
         if (!r.ok) { self->m_ok->setEnabled(true); Online::showError(self, T("布置作业"), r); return; }
         body["game_id"] = r.data.toObject()["id"];

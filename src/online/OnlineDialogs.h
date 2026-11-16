@@ -116,7 +116,8 @@ public:
 private:
     void kindChanged();
     void loadProblemSets(qint64 select = 0);
-    void uploadProblemSet();
+    void browseProblems();
+    void browseGame();
     void submit();
     OnlineHost *m_host;
     qint64 m_classId;
@@ -128,6 +129,9 @@ private:
     QCheckBox *m_hasDue;
     QListWidget *m_students;
     QWidget *m_tsRow, *m_reviewRow, *m_aiRow;
+    QLabel *m_gameLabel;
+    qint64 m_gameId = 0;     // 选了云棋谱
+    QString m_gameSgf;       // 选了本地棋谱；两者都空 = 当前棋盘
     QPushButton *m_ok;
 };
 

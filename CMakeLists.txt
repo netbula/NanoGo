@@ -38,6 +38,7 @@ set(SOURCES
     src/MainWindowOnline.cpp
     src/online/ApiClient.h src/online/ApiClient.cpp
     src/online/OnlineDialogs.h src/online/OnlineDialogs.cpp
+    src/online/SgfPicker.h src/online/SgfPicker.cpp
 )
 
 qt_add_executable(NanoGo ${SOURCES})
