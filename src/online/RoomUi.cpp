@@ -185,6 +185,10 @@ CreateRoomDialog::CreateRoomDialog(OnlineHost *host, const QString &kind, QWidge
         });
     }
     form->addRow(T("贴目："), m_komi);
+    if (m_handicap) {  // Tab 顺序和界面上一致：规则 → 让子 → 贴目
+        setTabOrder(m_rules, m_handicap);
+        setTabOrder(m_handicap, m_komi);
+    }
     m_class = new QComboBox(this);
     if (!lecture) m_class->addItem(T("不需要"), 0);
     form->addRow(lecture ? T("班级：") : T("全班观摩："), m_class);

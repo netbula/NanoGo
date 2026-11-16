@@ -125,6 +125,7 @@ void MainWindow::enterRoom(qint64 id)
     });
     connect(m_room, &RoomSession::ended, this, [this](bool byMe) {
         const bool game = m_room && !m_room->isLecture();
+        byMe = byMe || (m_room && m_room->canManage());  // 老师在别处（另一台电脑）结束的也算自己结束
         QTimer::singleShot(0, this, &MainWindow::leaveRoom);
         const QString result = m_room ? m_room->result() : QString();
         QString text = byMe ? T("对局室已结束，棋谱已存进你的云棋谱。")

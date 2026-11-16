@@ -1,5 +1,6 @@
 #include "I18n.h"
 #include "MainWindow.h"
+#include <QScreen>
 #include "online/OnlineDialogs.h"
 #include "Rules.h"
 #include <QLineEdit>
@@ -351,7 +352,12 @@ void MainWindow::closeEvent(QCloseEvent *e)
 void MainWindow::buildUi()
 {
     setWindowTitle(T("NanoGo 围棋"));
-    resize(1280, 860);
+    // 默认 1280×860，但不超过屏幕可用区域（高分屏放大 150% 时屏幕会变“小”）
+    {
+        QSize sz(1280, 860);
+        if (QScreen *scr = screen()) sz = sz.boundedTo(scr->availableGeometry().size() * 0.92);
+        resize(sz);
+    }
 
     m_board = new BoardWidget(&m_tree, this);
     connect(m_board, &BoardWidget::pointClicked, this, &MainWindow::onPointClicked);
