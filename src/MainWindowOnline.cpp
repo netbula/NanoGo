@@ -61,10 +61,17 @@ void MainWindow::onlineLogin()
         return;
     }
     LoginDialog dlg(m_settings.serverUrl, m_settings.serverUser, this);
-    if (dlg.exec() != QDialog::Accepted) return;
-    m_settings.serverUrl = dlg.server();
-    m_settings.serverUser = dlg.user();
-    m_settings.save();
+    // 填过的服务器地址和用户名马上记住：登录失败、点取消或关掉对话框，下次也不用重填
+    auto remember = [this](const QString &server, const QString &user) {
+        if (server.isEmpty() && user.isEmpty()) return;
+        if (server == m_settings.serverUrl && user == m_settings.serverUser) return;
+        if (!server.isEmpty()) m_settings.serverUrl = server;
+        if (!user.isEmpty()) m_settings.serverUser = user;
+        m_settings.save();
+    };
+    connect(&dlg, &LoginDialog::attempted, this, remember);
+    dlg.exec();
+    remember(dlg.server(), dlg.user());
 }
 
 void MainWindow::refreshOnline()

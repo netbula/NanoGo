@@ -48,6 +48,10 @@ public:
     QString server() const;
     QString user() const;
 
+signals:
+    // 每次点“登录”都发出，不管成功与否：主窗口借此记住服务器地址和用户名
+    void attempted(const QString &server, const QString &user);
+
 private:
     void tryLogin();
     QLineEdit *m_server, *m_user, *m_password;

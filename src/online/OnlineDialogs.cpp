@@ -230,6 +230,7 @@ void LoginDialog::tryLogin()
         m_error->setText(T("请填写服务器、用户名和密码。"));
         return;
     }
+    emit attempted(server(), user());
     m_ok->setEnabled(false);
     m_error->setText(T("正在登录…"));
     QPointer<LoginDialog> self(this);
