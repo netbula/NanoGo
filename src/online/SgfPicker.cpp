@@ -319,16 +319,16 @@ GamePickerDialog::GamePickerDialog(OnlineHost *host, QWidget *parent) : QDialog(
     connect(m_list, &QListWidget::currentRowChanged, this, &GamePickerDialog::selectionChanged);
     connect(m_slider, &QSlider::valueChanged, this, &GamePickerDialog::showMove);
 
-    // 老师还可以从学生的云棋谱里挑
+    // 老师还可以从学生的云棋谱里挑；管理员可以挑所有人的
     if (api()->isTeacher()) {
         QPointer<GamePickerDialog> self(this);
-        api()->get(api()->isAdmin() ? "/users?role=student" : "/users", [self](const ApiResult &r) {
+        api()->get("/users", [self](const ApiResult &r) {
             if (!self || !r.ok) return;
             const QSignalBlocker block(self->m_source);
             int at = 2;
             for (const QJsonValue &v : r.data.toArray()) {
                 const QJsonObject u = v.toObject();
-                if (idOf(u) == api()->myId() || u["role"].toString() != "student") continue;
+                if (idOf(u) == api()->myId()) continue;
                 self->m_source->insertItem(at++, T("云棋谱：%1").arg(u["display_name"].toString()),
                                            QStringLiteral("cloud:%1").arg(idOf(u)));
             }

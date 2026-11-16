@@ -257,11 +257,14 @@ CloudGamesDialog::CloudGamesDialog(OnlineHost *host, QWidget *parent) : QDialog(
         row->addWidget(m_owner, 1);
         lay->addLayout(row);
         QPointer<CloudGamesDialog> self(this);
-        api()->get(api()->isAdmin() ? "/users?role=student" : "/users", [self](const ApiResult &r) {
+        // 管理员能看所有老师和学生的棋谱；老师看自己班的学生
+        api()->get("/users", [self](const ApiResult &r) {
             if (!self || !r.ok) return;
             for (const QJsonValue &v : r.data.toArray()) {
                 const QJsonObject u = v.toObject();
-                self->m_owner->addItem(T("学生：%1（%2）").arg(u["display_name"].toString(), u["username"].toString()), idOf(u));
+                if (idOf(u) == api()->myId()) continue;
+                const QString who = u["role"].toString() == "student" ? T("学生：%1（%2）") : T("%1：%2（%3）").arg(ApiClient::roleName(u["role"].toString()), "%1", "%2");
+                self->m_owner->addItem(who.arg(u["display_name"].toString(), u["username"].toString()), idOf(u));
             }
         });
         connect(m_owner, &QComboBox::currentIndexChanged, this, &CloudGamesDialog::reload);
