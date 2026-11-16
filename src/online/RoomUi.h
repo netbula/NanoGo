@@ -47,6 +47,7 @@ private:
     QComboBox *m_student = nullptr, *m_color = nullptr, *m_class, *m_rules;
     QComboBox *m_black = nullptr, *m_white = nullptr;  // 比赛的双方
     class QDoubleSpinBox *m_komi;
+    class QSpinBox *m_handicap = nullptr;  // 让子数，0 = 分先
     class QCheckBox *m_useClock = nullptr;
     class QSpinBox *m_mainMin = nullptr, *m_periods = nullptr, *m_periodSec = nullptr;
     QRadioButton *m_fromBoard;

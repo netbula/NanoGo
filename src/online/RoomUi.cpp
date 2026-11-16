@@ -1,4 +1,5 @@
 #include "RoomUi.h"
+#include <QPoint>
 #include "ApiClient.h"
 #include "OnlineDialogs.h"
 #include "RoomSession.h"
@@ -164,9 +165,25 @@ CreateRoomDialog::CreateRoomDialog(OnlineHost *host, const QString &kind, QWidge
     m_komi->setSuffix(T(" 目"));
     m_komi->setValue(Rules::get(m_rules->currentData().toString()).komi);
     connect(m_rules, &QComboBox::currentIndexChanged, this, [this] {
+        if (m_handicap && m_handicap->value() >= 2) return;  // 让子棋贴目固定 0.5
         m_komi->setValue(Rules::get(m_rules->currentData().toString()).komi);
     });
     form->addRow(T("规则："), m_rules);
+    if (!lecture) {
+        m_handicap = new QSpinBox(this);
+        m_handicap->setRange(0, 9);
+        m_handicap->setSpecialValueText(T("不让子"));
+        m_handicap->setSuffix(T(" 子"));
+        m_handicap->setToolTip(T("让子时黑方先摆子，白方先走，贴目自动改为 0.5"));
+        form->addRow(T("让子："), m_handicap);
+        connect(m_handicap, &QSpinBox::valueChanged, this, [this](int h) {
+            if (h == 1) { m_handicap->setValue(m_handicap->property("last").toInt() >= 2 ? 0 : 2); return; }  // 没有让 1 子
+            m_handicap->setProperty("last", h);
+            m_komi->setValue(h >= 2 ? 0.5 : Rules::get(m_rules->currentData().toString()).komi);
+            if (h >= 2 && m_color) m_color->setCurrentIndex(0);  // 让子棋老师执白
+            if (m_color) m_color->setEnabled(h < 2);
+        });
+    }
     form->addRow(T("贴目："), m_komi);
     m_class = new QComboBox(this);
     if (!lecture) m_class->addItem(T("不需要"), 0);
@@ -214,6 +231,10 @@ CreateRoomDialog::CreateRoomDialog(OnlineHost *host, const QString &kind, QWidge
     startRow->addWidget(m_fromBoard);
     startRow->addStretch();
     form->addRow(T("开始局面："), startRow);
+    if (m_handicap) connect(m_fromBoard, &QRadioButton::toggled, m_handicap, [this](bool on) {
+        if (on) m_handicap->setValue(0);
+        m_handicap->setEnabled(!on);
+    });
     auto *note = new QLabel(lecture ? T("开房后你摆的每一步全班都能实时看到；可以请某个学生上台摆棋。结束时棋谱存进你的云棋谱。")
                             : match ? T("两个学生对下，你当裁判：可以悔棋、结束并判输赢。超时自动判负。结束时棋谱存进你和双方的云棋谱。")
                                     : T("开房后学生在“对局室”里就能进入。结束时棋谱存进你和学生的云棋谱。"), this);
@@ -284,7 +305,21 @@ void CreateRoomDialog::submit()
         body["sgf"] = m_host->currentGameSgf();
     } else {
         const Rules::Info &ru = Rules::get(m_rules->currentData().toString());
-        body["sgf"] = QStringLiteral("(;GM[1]FF[4]CA[UTF-8]SZ[19]RU[%1]KM[%2])").arg(ru.sgf).arg(m_komi->value());
+        QString sgf = QStringLiteral("(;GM[1]FF[4]CA[UTF-8]SZ[19]RU[%1]KM[%2]").arg(ru.sgf).arg(m_komi->value());
+        const int h = m_handicap ? m_handicap->value() : 0;
+        if (h >= 2) {
+            // 19 路标准让子位置（和人机对弈一样），白先走
+            QList<QPoint> pts = {{15, 3}, {3, 15}};
+            if (h >= 3) pts.append({15, 15});
+            if (h >= 4) pts.append({3, 3});
+            if (h == 5 || h == 7 || h == 9) pts.append({9, 9});
+            if (h >= 6) { pts.append({3, 9}); pts.append({15, 9}); }
+            if (h >= 8) { pts.append({9, 3}); pts.append({9, 15}); }
+            sgf += QStringLiteral("HA[%1]AB").arg(h);
+            for (const QPoint &p : pts) sgf += QStringLiteral("[%1%2]").arg(QChar('a' + p.x())).arg(QChar('a' + p.y()));
+            sgf += QStringLiteral("PL[W]");
+        }
+        body["sgf"] = sgf + ")";
     }
     m_ok->setEnabled(false);
     QPointer<CreateRoomDialog> self(this);
@@ -440,7 +475,7 @@ void RoomPanel::tickClock()
     };
     QString text = show("B", "black_ms", "black_periods") + "\n" + show("W", "white_ms", "white_periods");
     if (!running && !m_s->result().isEmpty()) text += "\n" + T("结果：%1").arg(m_s->result());
-    else if (!running) text += "\n" + T("黑方落下第一手后开始计时。");
+    else if (!running) text += "\n" + T("第一手落下后开始计时。");
     m_clockLabel->setText(text);
 }
 
