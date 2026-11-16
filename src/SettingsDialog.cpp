@@ -1,5 +1,6 @@
 #include "I18n.h"
 #include "SettingsDialog.h"
+#include "Rules.h"
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -86,13 +87,12 @@ SettingsDialog::SettingsDialog(const AppSettings &s, const QStringList &devices,
     form->addRow(T("贴目（新对局）："), m_komi);
 
     m_rules = new QComboBox(this);
-    m_rules->addItem(T("中国规则"), "chinese");
-    m_rules->addItem(T("日本规则"), "japanese");
-    m_rules->addItem(T("韩国规则"), "korean");
-    m_rules->addItem(T("AGA 规则"), "aga");
-    m_rules->addItem(QStringLiteral("Tromp-Taylor"), "tromp-taylor");
-    m_rules->setCurrentIndex(qMax(0, m_rules->findData(s.rules)));
+    Rules::fillBox(m_rules, s.rules);
     form->addRow(T("规则（新对局）："), m_rules);
+    // 换规则时贴目跟着换成该规则的默认值（之后还可以手动改）
+    connect(m_rules, &QComboBox::currentIndexChanged, this, [this] {
+        m_komi->setValue(Rules::get(m_rules->currentData().toString()).komi);
+    });
 
     // 语言名称用各自的文字显示，任何语言下都看得懂
     m_lang = new QComboBox(this);

@@ -17,6 +17,8 @@ struct AppSettings {
     QString language = QStringLiteral("auto"); // auto / zh / en / ja / ko
     bool autoUpdateModel = true;  // 自动跟踪官方最强模型
     QDateTime lastModelCheck;
+    QString serverUrl;            // 教学服务端地址，空 = 只用单机版
+    QString serverUser;           // 上次登录的用户名
 
     static QString appDir();
     static QString rootDir();    // NanoGo 的根目录：exe 往上找含 katago 或 models 文件夹的目录，找不到就是 exe 目录

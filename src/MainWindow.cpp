@@ -1,5 +1,11 @@
 #include "I18n.h"
 #include "MainWindow.h"
+#include "online/OnlineDialogs.h"
+#include "Rules.h"
+#include <QLineEdit>
+#include <QRegularExpression>
+#include <QDate>
+#include "online/RoomSession.h"
 #include "EngineInstaller.h"
 #include "Icons.h"
 #include "WinrateGraph.h"
@@ -56,7 +62,7 @@ static QString rankProfile(int v)
 }
 static QString rankLabel(int v) { return v <= -100 ? T("%1 段").arg(-v - 100) : T("%1 级").arg(-v); }
 
-static void fillStrengthBox(QComboBox *box, bool verbose)
+void fillStrengthBox(QComboBox *box, bool verbose)
 {
     for (auto [label, v] : std::initializer_list<std::pair<const char *, int>>{
              {"直觉（1 次）", 1}, {"快（20 次）", 20}, {"中（100 次）", 100}, {"强（400 次）", 400},
@@ -69,7 +75,7 @@ static void fillStrengthBox(QComboBox *box, bool verbose)
         box->addItem(verbose ? T("像 %1 年的职业棋手那样下").arg(year) : T("职业 %1 年").arg(year), -1000 - year);
 }
 
-static QString strengthText(int v) { return proYear(v) ? T("职业 %1 年").arg(proYear(v)) : isRank(v) ? T("野狐 %1").arg(rankLabel(v)) : T("每步 %1 次计算").arg(v); }
+QString strengthText(int v) { return proYear(v) ? T("职业 %1 年").arg(proYear(v)) : isRank(v) ? T("野狐 %1").arg(rankLabel(v)) : T("每步 %1 次计算").arg(v); }
 
 
 MainWindow::MainWindow(QWidget *parent)
@@ -312,7 +318,9 @@ void MainWindow::showAbout()
                   "<p>NanoGo 与 KataGo 项目没有隶属关系。</p>"
                   "<p>当前引擎：KataGo %1<br>引擎位置：%2<br>当前模型：%3</p>"
                   "<p>界面使用 Qt %4（LGPL-3.0）：<a href='https://www.qt.io/'>https://www.qt.io/</a></p>")
-                    .arg(EngineInstaller::version(), engine, model, QString::fromLatin1(qVersion())));
+                    .arg(EngineInstaller::version(), engine, model, QString::fromLatin1(qVersion()))
+                + T("<p>用 NanoGo 教围棋：教学服务端免费下载（账号班级、作业、指导棋、大课、比赛）：<br>"
+                    "<a href='%1'>%1</a></p>").arg(QString::fromLatin1(Online::kServerDownloadUrl)));
     box.exec();
 }
 
@@ -537,11 +545,16 @@ void MainWindow::buildUi()
     nav->addSeparator();
     QAction *passA = nav->addAction(T("停一手"), QKeySequence(Qt::CTRL | Qt::Key_P), this, [this] {
         if (m_aiColor != Stone::Empty && m_tree.toPlay() == m_aiColor) return;
+        if (!roomAllowsClick()) return;
+        const bool roomPlayer = m_room && !m_room->canManage() && !m_room->isLecture();
+        if (roomPlayer && (m_tree.toPlay() == Stone::White ? "W" : "B") != m_room->myColor()) return;
         m_aiPaused = false;
         m_tree.pass();
         positionChanged();
+        if (roomPlayer) pushRoomBoard();
     });
     QAction *aiGoA = nav->addAction(T("让 AI 走这一步"), QKeySequence(Qt::CTRL | Qt::Key_Return), this, [this] {
+        if (m_room) { statusBar()->showMessage(T("对局室里不能让 AI 走。"), 3000); return; }
         if (m_engine->state() != KataGoEngine::State::Ready) {
             statusBar()->showMessage(T("引擎还没就绪，请稍候"), 3000);
             return;
@@ -634,6 +647,8 @@ void MainWindow::buildUi()
     autoUpd->setChecked(m_settings.autoUpdateModel);
     connect(autoUpd, &QAction::toggled, this, [this](bool on) { m_settings.autoUpdateModel = on; m_settings.save(); });
 
+    buildOnlineMenu();
+
     QMenu *help = menuBar()->addMenu(T("帮助(&H)"));
     help->addAction(T("关于 NanoGo…"), this, &MainWindow::showAbout);
     help->addAction(T("打开日志文件夹"), this, [] {
@@ -695,6 +710,7 @@ void MainWindow::buildUi()
     tb->addSeparator();
     tb->addAction(countA);
     tb->addAction(m_tsAct);
+    addOnlineToolbar(tb);
 }
 
 // 按段位下棋需要 KataGo 的人类风格模型：没有就问要不要下载，已下载但引擎没加载就重启引擎
@@ -778,6 +794,7 @@ void MainWindow::swapSides()
 
 void MainWindow::newGame()
 {
+    if (m_room && !m_room->canEditNow()) { statusBar()->showMessage(T("在对局室里不能新开棋局。"), 3000); return; }
     if (m_tsMode) exitTsumego();
     m_aiColor = Stone::Empty;
     m_aiQueryId.clear();
@@ -805,16 +822,19 @@ void MainWindow::openSgf()
     const QString path = QFileDialog::getOpenFileName(this, T("打开棋谱"), QFileInfo(m_sgfPath).absolutePath(),
                                                       T("SGF 棋谱 (*.sgf);;所有文件 (*)"));
     if (path.isEmpty()) return;
-    if (m_tsMode) exitTsumego();
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
         QMessageBox::warning(this, T("打开失败"), T("无法读取文件：%1").arg(path));
         return;
     }
-    m_aiColor = Stone::Empty;
+    loadSgfContent(Sgf::decode(f.readAll()), QFileInfo(path).fileName(), path);
+}
+
+// 换上一盘棋谱（来自文件或服务器）
+void MainWindow::clearQueries()
+{
     m_aiQueryId.clear();
-    m_engine->terminateAll();
-    // 换棋谱前清掉还指向旧棋谱节点的查询
+    m_aiNode = nullptr;
     m_reviewQueryId.clear();
     m_fillQueryId.clear();
     m_reviewLine.clear();
@@ -823,20 +843,86 @@ void MainWindow::openSgf()
     if (m_reviewBtn) m_reviewBtn->setText(T("分析整盘棋"));
     m_queryId.clear();
     m_queryNode = nullptr;
+}
+
+bool MainWindow::loadSgfContent(const QString &text, const QString &displayName, const QString &path)
+{
+    if (m_tsMode) exitTsumego();
+    m_aiColor = Stone::Empty;
+    m_engine->terminateAll();
+    // 换棋谱前清掉还指向旧棋谱节点的查询
+    clearQueries();
     QString err;
-    if (!Sgf::load(Sgf::decode(f.readAll()), m_tree, &err)) {
+    if (!Sgf::load(text, m_tree, &err)) {
         QMessageBox::warning(this, T("打开失败"), err);
         newGame();
-        return;
+        return false;
     }
     m_sgfPath = path;
-    setWindowTitle(T("NanoGo 围棋 - %1").arg(QFileInfo(path).fileName()));
+    setWindowTitle(T("NanoGo 围棋 - %1").arg(displayName));
     positionChanged();
+    return true;
+}
+
+// 保存前填棋谱信息（标题、黑白方、日期、结果），文件名默认用标题
+bool MainWindow::editGameInfo()
+{
+    GameNode *root = m_tree.root();
+    QDialog dlg(this);
+    dlg.setWindowTitle(T("棋谱信息"));
+    auto *form = new QFormLayout(&dlg);
+    auto *title = new QLineEdit(root->extraProps.value("GN").value(0), &dlg);
+    title->setPlaceholderText(T("例如：周六指导棋 第三盘"));
+    auto *black = new QLineEdit(m_tree.playerBlack, &dlg);
+    auto *white = new QLineEdit(m_tree.playerWhite, &dlg);
+    QString date = root->extraProps.value("DT").value(0);
+    if (date.isEmpty()) date = QDate::currentDate().toString("yyyy-MM-dd");
+    auto *dt = new QLineEdit(date, &dlg);
+    auto *result = new QLineEdit(m_tree.result, &dlg);
+    result->setPlaceholderText(T("例如 B+R、W+3.5，可以不填"));
+    form->addRow(T("标题："), title);
+    form->addRow(T("黑方："), black);
+    form->addRow(T("白方："), white);
+    form->addRow(T("日期："), dt);
+    form->addRow(T("结果："), result);
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    bb->button(QDialogButtonBox::Ok)->setText(T("下一步"));
+    bb->button(QDialogButtonBox::Cancel)->setText(T("取消"));
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(bb);
+    dlg.resize(420, dlg.sizeHint().height());
+    if (dlg.exec() != QDialog::Accepted) return false;
+    auto setProp = [root](const char *key, const QString &v) {
+        if (v.trimmed().isEmpty()) root->extraProps.remove(key);
+        else root->extraProps[key] = QStringList{v.trimmed()};
+    };
+    setProp("GN", title->text());
+    setProp("DT", dt->text());
+    m_tree.playerBlack = black->text().trimmed();
+    m_tree.playerWhite = white->text().trimmed();
+    m_tree.result = result->text().trimmed();
+    autosave();
+    return true;
 }
 
 void MainWindow::saveSgf()
 {
-    QString path = QFileDialog::getSaveFileName(this, T("保存棋谱"), m_sgfPath, T("SGF 棋谱 (*.sgf)"));
+    if (!editGameInfo()) return;
+    // 文件名默认用标题（去掉文件名里不能用的字符），放在上次保存的文件夹
+    QString name = m_tree.root()->extraProps.value("GN").value(0);
+    if (name.isEmpty()) {
+        // 没写标题：用“日期 黑方 对 白方 结果”
+        name = m_tree.root()->extraProps.value("DT").value(0);
+        if (name.isEmpty()) name = QDate::currentDate().toString("yyyy-MM-dd");
+        if (!m_tree.playerBlack.isEmpty() || !m_tree.playerWhite.isEmpty())
+            name += " " + T("%1 对 %2").arg(m_tree.playerBlack, m_tree.playerWhite);
+        if (!m_tree.result.isEmpty()) name += " " + m_tree.result;
+    }
+    name.replace(QRegularExpression(R"([\\/:*?"<>|])"), "_");
+    const QString dir = m_sgfPath.isEmpty() ? QString() : QFileInfo(m_sgfPath).absolutePath();
+    const QString suggest = dir.isEmpty() ? name + ".sgf" : QDir(dir).filePath(name + ".sgf");
+    QString path = QFileDialog::getSaveFileName(this, T("保存棋谱"), suggest, T("SGF 棋谱 (*.sgf)"));
     if (path.isEmpty()) return;
     if (!path.endsWith(".sgf", Qt::CaseInsensitive)) path += ".sgf";
     QFile f(path);
@@ -893,6 +979,14 @@ void MainWindow::restartEngine()
 void MainWindow::onPointClicked(int x, int y)
 {
     if (m_tsMode) { tsOnClick(x, y); return; }
+    if (!roomAllowsClick()) return;
+    if (m_room && !m_room->canManage() && !m_room->isLecture()) {
+        // 指导棋的学生：只能走自己的颜色，走完马上发给老师
+        if ((m_tree.toPlay() == Stone::White ? "W" : "B") != m_room->myColor()) { QApplication::beep(); return; }
+        if (m_tree.play(x, y)) { positionChanged(); pushRoomBoard(); }
+        else QApplication::beep();
+        return;
+    }
     if (m_aiColor != Stone::Empty && m_tree.toPlay() == m_aiColor) {
         statusBar()->showMessage(m_aiPaused ? T("现在轮到 AI：按 Ctrl+Enter 让 AI 走，或按 → 前进")
                                             : T("AI 正在思考，请稍候…"), 3000);
@@ -986,7 +1080,7 @@ QJsonObject MainWindow::buildQueryFor(const QList<GameNode *> &path) const
 {
     const int n = m_tree.boardSize();
     QJsonObject q;
-    q["rules"] = m_tree.rules();
+    q["rules"] = Rules::katago(m_tree.rules());
     q["komi"] = m_tree.komi();
     q["boardXSize"] = n;
     q["boardYSize"] = n;
@@ -1024,6 +1118,7 @@ QJsonObject MainWindow::buildQueryFor(const QList<GameNode *> &path) const
 
 void MainWindow::requestAnalysis()
 {
+    if (roomBlocksAi()) return;
     if (!m_analyzeAct->isChecked() || m_engine->state() != KataGoEngine::State::Ready) return;
     if (!m_queryId.isEmpty()) m_engine->terminate(m_queryId);
     m_queryNode = m_tree.current();
@@ -1203,6 +1298,8 @@ void MainWindow::positionChanged()
 {
     if (m_tsMode) { tsAfterNavigate(); return; }
     autosave();
+    // 对局室：老师和大课上台的人每改一下都同步给大家（指导棋的学生只在落子时同步，见 onPointClicked）
+    if (m_room && !m_applyingRoom && (m_room->canManage() || m_room->isLecture())) pushRoomBoard();
     m_pinnedMove.clear();
     m_board->setPinnedPv({});
     m_comment->blockSignals(true);
@@ -1265,6 +1362,7 @@ void MainWindow::sendAiQuery()
 
 void MainWindow::newAiGame()
 {
+    if (m_room) { QMessageBox::information(this, T("人机对弈"), T("请先离开对局室。")); return; }
     if (m_tsMode) exitTsumego();
     QDialog dlg(this);
     dlg.setWindowTitle(T("人机对弈"));
@@ -1347,6 +1445,7 @@ void MainWindow::backfillGraph()
 
 void MainWindow::startReview()
 {
+    if (roomBlocksAi()) { statusBar()->showMessage(T("在对局室里不能用 AI 分析。"), 3000); return; }
     if (!m_reviewQueryId.isEmpty()) {
         // 再按一次：停止
         m_engine->terminate(m_reviewQueryId);
@@ -1593,7 +1692,7 @@ void MainWindow::onModelList(const QList<NetworkInfo> &list)
 // 自动保存：每走一步都把整盘棋、当前位置和人机对弈状态写到 data 目录，下次打开自动恢复
 void MainWindow::autosave()
 {
-    if (m_tsMode) return; // 做题时不覆盖保存的棋局
+    if (m_tsMode || m_room) return; // 做题、在对局室时不覆盖保存的棋局
     const QString dir = AppSettings::dataDir();
     QFile f(QDir(dir).filePath("autosave.sgf"));
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(Sgf::save(m_tree).toUtf8());
@@ -1635,6 +1734,7 @@ void MainWindow::restoreAutosave()
 
 void MainWindow::sendSideQuery(int purpose, int visits)
 {
+    if (roomBlocksAi()) return;
     if (m_engine->state() != KataGoEngine::State::Ready) {
         statusBar()->showMessage(T("引擎还没就绪，请稍候再试"), 3000);
         return;
@@ -1684,8 +1784,7 @@ void MainWindow::showCount(GameNode *node, const QJsonObject &resp)
     const double diff = black - (white + komi);
     const QString areaResult = diff > 0 ? T("黑胜 %1 目").arg(diff) : diff < 0 ? T("白胜 %1 目").arg(-diff) : T("和棋");
     const double lead = resp.value("rootInfo").toObject().value("scoreLead").toDouble();
-    const QString rulesName = m_tree.rules() == "japanese" ? T("日本规则") : m_tree.rules() == "korean" ? T("韩国规则")
-                            : m_tree.rules() == "chinese" ? T("中国规则") : m_tree.rules();
+    const QString rulesName = Rules::name(m_tree.rules());
     QString msg = T("数子结果（中国规则）：\n黑 %1 子，白 %2 子，白贴 %3 目\n%4\n").arg(black).arg(white).arg(komi).arg(areaResult);
     if (deadB || deadW) msg += T("（判为死子：黑 %1 个，白 %2 个，已算给对方）\n").arg(deadB).arg(deadW);
     if (unsure) msg += T("还有 %1 个点归属不明（单官或未下完的地方），没计入。\n").arg(unsure);

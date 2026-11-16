@@ -1,5 +1,6 @@
 #include "I18n.h"
 #include "Sgf.h"
+#include "Rules.h"
 #include <QStringDecoder>
 #include <QRegularExpression>
 
@@ -72,12 +73,7 @@ struct Parser {
             else if (isRoot && ident == "PW") tree.playerWhite = vals[0];
             else if (isRoot && ident == "RE") tree.result = vals[0];
             else if (isRoot && ident == "RU") {
-                QString r = vals[0].toLower();
-                if (r.contains("japan")) tree.setRules("japanese");
-                else if (r.contains("korea")) tree.setRules("korean");
-                else if (r.contains("aga")) tree.setRules("aga");
-                else if (r.contains("tromp") || r.contains("tt")) tree.setRules("tromp-taylor");
-                else tree.setRules("chinese");
+                tree.setRules(Rules::fromSgf(vals[0]));
             }
             else if (ident == "B" || ident == "W") {
                 node->move.color = ident == "B" ? Stone::Black : Stone::White;
@@ -201,8 +197,7 @@ QString Sgf::save(const GameTree &tree)
 {
     QString out = QStringLiteral("(;GM[1]FF[4]CA[UTF-8]AP[NanoGo:0.2]SZ[%1]KM[%2]")
                       .arg(tree.boardSize()).arg(tree.komi());
-    const QString ru = tree.rules() == "japanese" ? "Japanese" : tree.rules() == "korean" ? "Korean"
-                     : tree.rules() == "aga" ? "AGA" : tree.rules() == "tromp-taylor" ? "Tromp-Taylor" : "Chinese";
+    const QString ru = Rules::get(tree.rules()).sgf;
     out += "RU[" + ru + "]";
     if (!tree.playerBlack.isEmpty()) out += "PB[" + escape(tree.playerBlack) + "]";
     if (!tree.playerWhite.isEmpty()) out += "PW[" + escape(tree.playerWhite) + "]";
