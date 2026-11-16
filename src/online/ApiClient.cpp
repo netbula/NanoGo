@@ -38,6 +38,8 @@ QString ApiResult::message() const
         {"class_empty", "这个班还没有学生。"},
         {"not_in_class", "有学生不在这个班里。"},
         {"bad_sgf", "不是有效的 SGF 棋谱。"},
+        {"bad_rank", "棋力不在可选范围内。"},
+        {"class_not_found", "找不到目标班级，可能已被删除。"},
     };
     if (texts.contains(code)) return T(texts.value(code));
     const QString detail = data.toObject().value("message").toString();

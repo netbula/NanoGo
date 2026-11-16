@@ -26,6 +26,7 @@
 #include <QTableWidget>
 #include <QTextBrowser>
 #include <QVBoxLayout>
+#include <memory>
 #include "../Sgf.h"
 
 namespace {
@@ -111,6 +112,79 @@ void Online::changePassword(QWidget *parent)
                    else if (r.code == "bad_credentials") QMessageBox::warning(p, T("修改密码"), T("原密码不对。"));
                    else Online::showError(p, T("修改密码"), r);
                });
+}
+
+QString Online::rankName(int r)
+{
+    if (r <= -201) return T("职业 %1 段").arg(-r - 200);
+    if (r <= -101) return T("业余 %1 段").arg(-r - 100);
+    if (r < 0) return T("%1 级").arg(-r);
+    return T("未填");
+}
+
+void Online::fillRankBox(QComboBox *box, int current)
+{
+    box->clear();
+    box->addItem(T("未填"), 0);
+    for (int k = 25; k >= 1; --k) box->addItem(rankName(-k), -k);
+    for (int d = 1; d <= 8; ++d) box->addItem(rankName(-100 - d), -100 - d);
+    for (int d = 1; d <= 9; ++d) box->addItem(rankName(-200 - d), -200 - d);
+    box->setCurrentIndex(qMax(0, box->findData(current)));
+}
+
+void Online::editClassRanks(QWidget *parent, qint64 classId, const QString &className)
+{
+    QDialog dlg(parent);
+    dlg.setWindowTitle(T("学生棋力：%1").arg(className));
+    auto *lay = new QVBoxLayout(&dlg);
+    QTableWidget *table = makeTable({T("名字"), T("用户名"), T("棋力")}, &dlg);
+    lay->addWidget(table, 1);
+    auto *btns = new QHBoxLayout;
+    auto *setBtn = new QPushButton(T("设置棋力…"), &dlg);
+    auto *closeBtn = new QPushButton(T("关闭"), &dlg);
+    btns->addWidget(setBtn);
+    btns->addStretch();
+    btns->addWidget(closeBtn);
+    lay->addLayout(btns);
+    QObject::connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+    auto members = std::make_shared<QJsonArray>();
+    QPointer<QDialog> self(&dlg);
+    auto reload = [self, table, members, classId] {
+        api()->get(QStringLiteral("/classes/%1/members").arg(classId), [self, table, members](const ApiResult &r) {
+            if (!self) return;
+            if (!r.ok) { Online::showError(self, T("学生棋力"), r); return; }
+            *members = r.data.toArray();
+            table->setRowCount(members->size());
+            for (int i = 0; i < members->size(); ++i) {
+                const QJsonObject u = (*members)[i].toObject();
+                setRow(table, i, {u["display_name"].toString(), u["username"].toString(), Online::rankName(u["rank"].toInt())});
+            }
+        });
+    };
+    auto setRank = [self, table, members, reload] {
+        const int row = table->currentRow();
+        if (!self || row < 0 || row >= members->size()) return;
+        const QJsonObject u = (*members)[row].toObject();
+        QDialog d(self);
+        d.setWindowTitle(T("设置棋力"));
+        auto *form = new QFormLayout(&d);
+        auto *box = new QComboBox(&d);
+        Online::fillRankBox(box, u["rank"].toInt());
+        form->addRow(T("%1 的棋力：").arg(u["display_name"].toString()), box);
+        form->addRow(okCancel(&d));
+        if (d.exec() != QDialog::Accepted) return;
+        api()->put(QStringLiteral("/users/%1/rank").arg(idOf(u)), QJsonObject{{"rank", box->currentData().toInt()}},
+                   [self, reload](const ApiResult &r) {
+                       if (!self) return;
+                       if (!r.ok) Online::showError(self, T("设置棋力"), r);
+                       reload();
+                   });
+    };
+    QObject::connect(setBtn, &QPushButton::clicked, &dlg, setRank);
+    QObject::connect(table, &QTableWidget::cellDoubleClicked, &dlg, setRank);
+    dlg.resize(460, 420);
+    reload();
+    dlg.exec();
 }
 
 // ---- 登录 ----
@@ -312,9 +386,15 @@ HomeworkDialog::HomeworkDialog(OnlineHost *host, QWidget *parent)
         m_assignBtn = new QPushButton(T("布置作业…"), this);
         m_subsBtn = new QPushButton(T("查看提交…"), this);
         m_deleteBtn = new QPushButton(T("删除"), this);
+        m_ranksBtn = new QPushButton(T("学生棋力…"), this);
         btns->addWidget(m_assignBtn);
         btns->addWidget(m_subsBtn);
         btns->addWidget(m_deleteBtn);
+        btns->addWidget(m_ranksBtn);
+        connect(m_ranksBtn, &QPushButton::clicked, this, [this] {
+            if (m_class->count() == 0) return;
+            Online::editClassRanks(this, m_class->currentData().toLongLong(), m_class->currentText());
+        });
         connect(m_assignBtn, &QPushButton::clicked, this, &HomeworkDialog::assign);
         connect(m_subsBtn, &QPushButton::clicked, this, &HomeworkDialog::viewSubmissions);
         connect(m_table, &QTableWidget::cellDoubleClicked, this, &HomeworkDialog::viewSubmissions);
@@ -354,6 +434,7 @@ void HomeworkDialog::reloadClasses()
         if (self->m_class->count() == 0)
             self->m_detail->setText(T("你还没有带班。请管理员在“管理”里建班并把你设为任课老师。"));
         self->m_assignBtn->setEnabled(self->m_class->count() > 0);
+        self->m_ranksBtn->setEnabled(self->m_class->count() > 0);
         self->reload();
     });
 }
@@ -864,7 +945,7 @@ QWidget *AdminDialog::buildUsersTab()
 {
     auto *w = new QWidget(this);
     auto *lay = new QVBoxLayout(w);
-    m_users = makeTable({T("用户名"), T("名字"), T("角色"), T("状态"), T("未成年"), T("监护人"), T("开通时间")}, w);
+    m_users = makeTable({T("用户名"), T("名字"), T("角色"), T("棋力"), T("状态"), T("未成年"), T("监护人"), T("开通时间")}, w);
     lay->addWidget(m_users, 1);
     auto *btns = new QHBoxLayout;
     auto *add = new QPushButton(T("新建账号…"), w);
@@ -903,7 +984,9 @@ QWidget *AdminDialog::buildClassesTab()
     auto *mb = new QHBoxLayout;
     auto *addM = new QPushButton(T("加学生…"), w);
     auto *delM = new QPushButton(T("移出班级"), w);
+    auto *moveM = new QPushButton(T("调班…"), w);
     mb->addWidget(addM);
+    mb->addWidget(moveM);
     mb->addWidget(delM);
     mb->addStretch();
     right->addLayout(mb);
@@ -915,6 +998,7 @@ QWidget *AdminDialog::buildClassesTab()
     connect(delC, &QPushButton::clicked, this, &AdminDialog::deleteClass);
     connect(addM, &QPushButton::clicked, this, &AdminDialog::addMember);
     connect(delM, &QPushButton::clicked, this, &AdminDialog::removeMember);
+    connect(moveM, &QPushButton::clicked, this, &AdminDialog::moveMember);
     return w;
 }
 
@@ -947,7 +1031,7 @@ void AdminDialog::reloadUsers()
         for (int i = 0; i < self->m_userList.size(); ++i) {
             const QJsonObject u = self->m_userList[i].toObject();
             setRow(self->m_users, i, {u["username"].toString(), u["display_name"].toString(), ApiClient::roleName(u["role"].toString()),
-                                      u["status"].toString() == "disabled" ? T("已停用") : T("正常"),
+                                      Online::rankName(u["rank"].toInt()), u["status"].toString() == "disabled" ? T("已停用") : T("正常"),
                                       u["is_minor"].toBool() ? T("是") : QString(),
                                       u["guardian_name"].toString(), Online::formatTime(idOf(u, "created_at"))});
         }
@@ -968,6 +1052,8 @@ void AdminDialog::editUser(bool create)
     auto *role = new QComboBox(&dlg);
     for (const char *r : {"student", "teacher", "admin"}) role->addItem(ApiClient::roleName(r), r);
     role->setCurrentIndex(qMax(0, role->findData(u["role"].toString("student"))));
+    auto *rank = new QComboBox(&dlg);
+    Online::fillRankBox(rank, u["rank"].toInt());
     auto *password = new QLineEdit(&dlg);
     auto *minor = new QCheckBox(T("未成年人"), &dlg);
     minor->setChecked(u["is_minor"].toBool());
@@ -978,6 +1064,7 @@ void AdminDialog::editUser(bool create)
     form->addRow(T("用户名："), username);
     form->addRow(T("名字："), display);
     form->addRow(T("角色："), role);
+    form->addRow(T("棋力："), rank);
     if (create) {
         password->setPlaceholderText(T("至少 6 位"));
         form->addRow(T("初始密码："), password);
@@ -996,7 +1083,8 @@ void AdminDialog::editUser(bool create)
     if (role->currentData().toString() != "student" && !create) role->setToolTip(T("改角色后该账号需要重新登录"));
     if (dlg.exec() != QDialog::Accepted) return;
 
-    QJsonObject body{{"display_name", display->text()}, {"role", role->currentData().toString()}, {"is_minor", minor->isChecked()},
+    QJsonObject body{{"display_name", display->text()}, {"role", role->currentData().toString()}, {"rank", rank->currentData().toInt()},
+                     {"is_minor", minor->isChecked()},
                      {"guardian_name", gName->text()}, {"guardian_contact", gContact->text()}, {"guardian_consent", consent->isChecked()}};
     QPointer<AdminDialog> self(this);
     auto done = [self](const ApiResult &r) {
@@ -1080,7 +1168,8 @@ void AdminDialog::reloadMembers()
         self->m_memberList = r.data.toArray();
         self->m_members->clear();
         for (const QJsonValue &v : self->m_memberList)
-            self->m_members->addItem(T("%1（%2）").arg(v["display_name"].toString(), v["username"].toString()));
+            self->m_members->addItem(T("%1（%2）").arg(v["display_name"].toString(), v["username"].toString())
+                                     + QStringLiteral("  ·  ") + Online::rankName(v["rank"].toInt()));
     });
 }
 
@@ -1168,6 +1257,37 @@ void AdminDialog::removeMember()
         if (!r.ok) Online::showError(self, T("管理"), r);
         self->reloadClasses();
     });
+}
+
+void AdminDialog::moveMember()
+{
+    const QJsonObject c = selectedClass();
+    const int row = m_members->currentRow();
+    if (c.isEmpty() || row < 0 || row >= m_memberList.size()) {
+        QMessageBox::information(this, T("调班"), T("请先在右边选中要调班的学生。"));
+        return;
+    }
+    const QJsonObject u = m_memberList[row].toObject();
+    QStringList items;
+    QList<qint64> ids;
+    for (const QJsonValue &v : m_classList) {
+        const QJsonObject o = v.toObject();
+        if (idOf(o) == idOf(c)) continue;
+        items << T("%1　老师：%2　%3 人").arg(o["name"].toString(), o["teacher_name"].toString()).arg(o["students"].toInt());
+        ids << idOf(o);
+    }
+    if (items.isEmpty()) { QMessageBox::information(this, T("调班"), T("没有别的班可以调。请先新建班级。")); return; }
+    bool ok = false;
+    const QString pick = QInputDialog::getItem(this, T("调班"), T("把 %1 从“%2”调到：").arg(u["display_name"].toString(), c["name"].toString()),
+                                               items, 0, false, &ok);
+    if (!ok) return;
+    QPointer<AdminDialog> self(this);
+    api()->post(QStringLiteral("/classes/%1/members/%2/move").arg(idOf(c)).arg(idOf(u)),
+                QJsonObject{{"to_class_id", ids[items.indexOf(pick)]}}, [self](const ApiResult &r) {
+                    if (!self) return;
+                    if (!r.ok) Online::showError(self, T("调班"), r);
+                    self->reloadClasses();
+                });
 }
 
 void AdminDialog::reloadAudit()

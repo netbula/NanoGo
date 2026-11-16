@@ -34,6 +34,11 @@ QString homeworkKindName(const QString &kind);
 // 作业的做题进度键：区分服务器和账号，同一台电脑上换账号不会串
 QString homeworkKey(qint64 homeworkId);
 void changePassword(QWidget *parent);
+// 棋力：0 = 未填；-k = k 级；-(100+d) = 业余 d 段；-(200+d) = 职业 d 段（与服务端一致）
+QString rankName(int rank);
+void fillRankBox(QComboBox *box, int current);
+// 老师查看和设置自己班学生的棋力
+void editClassRanks(QWidget *parent, qint64 classId, const QString &className);
 }
 
 class LoginDialog : public QDialog {
@@ -89,6 +94,7 @@ private:
     void deleteSelected();
 
     OnlineHost *m_host;
+    QPushButton *m_ranksBtn = nullptr;
     bool m_teacher;
     QComboBox *m_class = nullptr;
     QTableWidget *m_table;
@@ -156,6 +162,7 @@ private:
     void deleteClass();
     void addMember();
     void removeMember();
+    void moveMember();
     void reloadAudit();
     QJsonObject selectedUser() const;
     QJsonObject selectedClass() const;
