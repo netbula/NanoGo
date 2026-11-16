@@ -7,6 +7,9 @@
 #include "../AppSettings.h"
 #include <QDoubleSpinBox>
 #include <QButtonGroup>
+#include <QTimer>
+#include <QSpinBox>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
 #include <QDialogButtonBox>
@@ -29,7 +32,11 @@ namespace {
 ApiClient *api() { return ApiClient::instance(); }
 qint64 idOf(const QJsonObject &o, const char *key = "id") { return qint64(o.value(key).toDouble()); }
 
-QString roomKindName(const QString &kind) { return kind == QLatin1String("lecture") ? T("班级大课") : T("指导棋"); }
+QString roomKindName(const QJsonObject &r)
+{
+    if (r["match"].toBool()) return T("比赛");
+    return r["kind"].toString() == QLatin1String("lecture") ? T("班级大课") : T("指导棋");
+}
 
 QString roomWho(const QJsonObject &r)
 {
@@ -65,9 +72,12 @@ RoomsDialog::RoomsDialog(OnlineHost *host, QWidget *parent) : QDialog(parent), m
     btns->addWidget(enterBtn);
     if (api()->isTeacher()) {
         auto *gameBtn = new QPushButton(T("开指导棋…"), this);
+        auto *matchBtn = new QPushButton(T("开比赛…"), this);
         auto *lectureBtn = new QPushButton(T("开班级大课…"), this);
         btns->addWidget(gameBtn);
+        btns->addWidget(matchBtn);
         btns->addWidget(lectureBtn);
+        connect(matchBtn, &QPushButton::clicked, this, [this] { create("match"); });
         connect(gameBtn, &QPushButton::clicked, this, [this] { create("game"); });
         connect(lectureBtn, &QPushButton::clicked, this, [this] { create("lecture"); });
     }
@@ -95,8 +105,8 @@ void RoomsDialog::reload()
         self->m_table->setRowCount(int(self->m_rooms.size()));
         for (int i = 0; i < self->m_rooms.size(); ++i) {
             const QJsonObject o = self->m_rooms[i].toObject();
-            const QString title = o["title"].toString().isEmpty() ? roomKindName(o["kind"].toString()) : o["title"].toString();
-            const QStringList cells{title, roomKindName(o["kind"].toString()), o["owner_name"].toString(), roomWho(o)};
+            const QString title = o["title"].toString().isEmpty() ? roomKindName(o) : o["title"].toString();
+            const QStringList cells{title, roomKindName(o), o["owner_name"].toString(), roomWho(o)};
             for (int c = 0; c < cells.size(); ++c) self->m_table->setItem(i, c, new QTableWidgetItem(cells[c]));
         }
         if (!self->m_rooms.isEmpty()) self->m_table->selectRow(0);
@@ -125,12 +135,18 @@ CreateRoomDialog::CreateRoomDialog(OnlineHost *host, const QString &kind, QWidge
     : QDialog(parent), m_host(host), m_kind(kind)
 {
     const bool lecture = kind == QLatin1String("lecture");
-    setWindowTitle(lecture ? T("开班级大课") : T("开指导棋"));
+    const bool match = kind == QLatin1String("match");
+    setWindowTitle(lecture ? T("开班级大课") : match ? T("开比赛") : T("开指导棋"));
     auto *form = new QFormLayout(this);
     m_title = new QLineEdit(this);
     m_title->setPlaceholderText(T("可以不填"));
     form->addRow(T("名称："), m_title);
-    if (!lecture) {
+    if (match) {
+        m_black = new QComboBox(this);
+        m_white = new QComboBox(this);
+        form->addRow(T("执黑："), m_black);
+        form->addRow(T("执白："), m_white);
+    } else if (!lecture) {
         m_student = new QComboBox(this);
         form->addRow(T("学生："), m_student);
         m_color = new QComboBox(this);
@@ -155,6 +171,38 @@ CreateRoomDialog::CreateRoomDialog(OnlineHost *host, const QString &kind, QWidge
     m_class = new QComboBox(this);
     if (!lecture) m_class->addItem(T("不需要"), 0);
     form->addRow(lecture ? T("班级：") : T("全班观摩："), m_class);
+    if (!lecture) {
+        // 计时：比赛默认计时，指导棋默认不计时
+        m_useClock = new QCheckBox(T("计时"), this);
+        m_useClock->setChecked(match);
+        m_mainMin = new QSpinBox(this);
+        m_mainMin->setRange(0, 360);
+        m_mainMin->setValue(match ? 20 : 10);
+        m_mainMin->setSuffix(T(" 分钟"));
+        m_periods = new QSpinBox(this);
+        m_periods->setRange(0, 20);
+        m_periods->setValue(3);
+        m_periods->setSuffix(T(" 次"));
+        m_periodSec = new QSpinBox(this);
+        m_periodSec->setRange(5, 600);
+        m_periodSec->setValue(30);
+        m_periodSec->setSuffix(T(" 秒"));
+        auto *clockRow = new QHBoxLayout;
+        clockRow->addWidget(m_useClock);
+        clockRow->addWidget(new QLabel(T("基本用时"), this));
+        clockRow->addWidget(m_mainMin);
+        clockRow->addWidget(new QLabel(T("读秒"), this));
+        clockRow->addWidget(m_periods);
+        clockRow->addWidget(m_periodSec);
+        clockRow->addStretch();
+        form->addRow(T("用时："), clockRow);
+        auto syncClock = [this] {
+            for (QWidget *w : {static_cast<QWidget *>(m_mainMin), static_cast<QWidget *>(m_periods), static_cast<QWidget *>(m_periodSec)})
+                w->setEnabled(m_useClock->isChecked());
+        };
+        connect(m_useClock, &QCheckBox::toggled, this, syncClock);
+        syncClock();
+    }
     auto *startRow = new QHBoxLayout;
     auto *empty = new QRadioButton(T("空棋盘"), this);
     m_fromBoard = new QRadioButton(T("当前棋盘上的棋局"), this);
@@ -167,6 +215,7 @@ CreateRoomDialog::CreateRoomDialog(OnlineHost *host, const QString &kind, QWidge
     startRow->addStretch();
     form->addRow(T("开始局面："), startRow);
     auto *note = new QLabel(lecture ? T("开房后你摆的每一步全班都能实时看到；可以请某个学生上台摆棋。结束时棋谱存进你的云棋谱。")
+                            : match ? T("两个学生对下，你当裁判：可以悔棋、结束并判输赢。超时自动判负。结束时棋谱存进你和双方的云棋谱。")
                                     : T("开房后学生在“对局室”里就能进入。结束时棋谱存进你和学生的云棋谱。"), this);
     note->setWordWrap(true);
     note->setStyleSheet("color: gray;");
@@ -187,7 +236,7 @@ CreateRoomDialog::CreateRoomDialog(OnlineHost *host, const QString &kind, QWidge
             self->m_class->addItem(T("%1（%2 人）").arg(c["name"].toString()).arg(c["students"].toInt()), idOf(c));
         }
     });
-    if (m_student) {
+    if (m_student || m_black) {
         api()->get("/users", [self](const ApiResult &r) {
             if (!self || !r.ok) return;
             for (const QJsonValue &v : r.data.toArray()) {
@@ -195,8 +244,10 @@ CreateRoomDialog::CreateRoomDialog(OnlineHost *host, const QString &kind, QWidge
                 if (u["role"].toString() != QLatin1String("student") || u["status"].toString() == QLatin1String("disabled")) continue;
                 QString text = T("%1（%2）").arg(u["display_name"].toString(), u["username"].toString());
                 if (u["rank"].toInt() != 0) text += "  " + Online::rankName(u["rank"].toInt());
-                self->m_student->addItem(text, idOf(u));
+                for (QComboBox *box : {self->m_student, self->m_black, self->m_white})
+                    if (box) box->addItem(text, idOf(u));
             }
+            if (self->m_white && self->m_white->count() > 1) self->m_white->setCurrentIndex(1);
         });
     }
     resize(460, sizeHint().height());
@@ -209,11 +260,25 @@ void CreateRoomDialog::submit()
     if (m_kind == QLatin1String("lecture")) {
         if (!classId) { QMessageBox::warning(this, windowTitle(), T("请先选择班级。")); return; }
         body["class_id"] = classId;
+    } else if (m_kind == QLatin1String("match")) {
+        if (m_black->currentIndex() < 0 || m_white->currentIndex() < 0 || m_black->currentData() == m_white->currentData()) {
+            QMessageBox::warning(this, windowTitle(), T("请选择两个不同的学生。"));
+            return;
+        }
+        body["black_id"] = m_black->currentData().toLongLong();
+        body["white_id"] = m_white->currentData().toLongLong();
+        if (classId) body["class_id"] = classId;
     } else {
         if (m_student->currentIndex() < 0) { QMessageBox::warning(this, windowTitle(), T("请先选择学生。")); return; }
         body["student_id"] = m_student->currentData().toLongLong();
         body["teacher_color"] = m_color->currentData().toString();
         if (classId) body["class_id"] = classId;
+    }
+    if (m_useClock && m_useClock->isChecked()) {
+        const int periods = m_periods->value();
+        body["clock"] = QJsonObject{{"main_sec", m_mainMin->value() * 60}, {"periods", periods},
+                                    {"period_sec", periods > 0 ? m_periodSec->value() : 0}};
+        if (m_mainMin->value() == 0 && periods == 0) { QMessageBox::warning(this, windowTitle(), T("计时至少要有基本用时或读秒。")); return; }
     }
     if (m_fromBoard->isChecked()) {
         body["sgf"] = m_host->currentGameSgf();
@@ -244,6 +309,14 @@ RoomPanel::RoomPanel(RoomSession *session, QWidget *parent) : QWidget(parent), m
     m_status->setWordWrap(true);
     lay->addWidget(m_title);
     lay->addWidget(m_status);
+    if (!m_s->clock().isEmpty()) {
+        m_clockLabel = new QLabel(this);
+        m_clockLabel->setStyleSheet("font-size: 15px; font-family: monospace;");
+        lay->addWidget(m_clockLabel);
+        auto *timer = new QTimer(this);
+        connect(timer, &QTimer::timeout, this, &RoomPanel::tickClock);
+        timer->start(250);
+    }
     lay->addWidget(new QLabel(T("在房间里："), this));
     m_online = new QListWidget(this);
     m_online->setMaximumHeight(130);
@@ -332,9 +405,43 @@ void RoomPanel::refresh()
         if (mine.isEmpty()) status = T("轮到%1走。").arg(color);
         else if (mine == m_s->toMove()) status = T("轮到你走（%1）。").arg(color);
         else status = T("等对方走（你执%1）。").arg(mine == QLatin1String("W") ? T("白") : T("黑"));
-        if (m_s->canManage()) status += T("老师可以随时悔棋、摆变化。");
+        if (m_s->canManage()) status += m_s->isMatch() ? T("你是裁判，可以悔棋、结束并判输赢。") : T("老师可以随时悔棋、摆变化。");
     }
     m_status->setText(status);
+}
+
+// 钟：服务器给的是轮到的一方已用多久，这里按本机时间接着往下倒数
+void RoomPanel::tickClock()
+{
+    const QJsonObject c = m_s->clock();
+    if (!m_clockLabel || c.isEmpty()) return;
+    const qint64 periodMs = qint64(c["period_sec"].toInt()) * 1000;
+    const bool running = c["running"].toBool();
+    const qint64 extra = running ? qint64(c["elapsed_ms"].toDouble()) + QDateTime::currentMSecsSinceEpoch() - m_s->clockReceivedMs() : 0;
+    auto show = [&](const QString &color, const char *msKey, const char *pKey) {
+        qint64 main = qint64(c[msKey].toDouble());
+        int periods = c[pKey].toInt();
+        qint64 inPeriod = periodMs;
+        if (running && c["turn"].toString() == color) {
+            qint64 used = extra;
+            if (used <= main) main -= used;
+            else {
+                used -= main;
+                main = 0;
+                while (periodMs > 0 && used > periodMs && periods > 0) { --periods; used -= periodMs; }
+                inPeriod = qMax<qint64>(0, periodMs - used);
+            }
+        }
+        auto mmss = [](qint64 ms) { const qint64 s = (ms + 999) / 1000; return QStringLiteral("%1:%2").arg(s / 60, 2, 10, QChar('0')).arg(s % 60, 2, 10, QChar('0')); };
+        QString text = main > 0 ? mmss(main) + (periods > 0 ? QStringLiteral(" + %1×%2").arg(periods).arg(periodMs / 1000) : QString())
+                                : periods > 0 ? T("读秒 %1（剩 %2 次）").arg(mmss(inPeriod)).arg(periods) : QStringLiteral("00:00");
+        const bool moving = running && c["turn"].toString() == color;
+        return QStringLiteral("%1%2 %3").arg(moving ? QStringLiteral("▶ ") : QStringLiteral("　"), color == "B" ? T("黑") : T("白"), text);
+    };
+    QString text = show("B", "black_ms", "black_periods") + "\n" + show("W", "white_ms", "white_periods");
+    if (!running && !m_s->result().isEmpty()) text += "\n" + T("结果：%1").arg(m_s->result());
+    else if (!running) text += "\n" + T("黑方落下第一手后开始计时。");
+    m_clockLabel->setText(text);
 }
 
 void RoomPanel::addChat(const QJsonArray &messages)

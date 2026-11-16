@@ -45,7 +45,10 @@ private:
     QString m_kind;
     QLineEdit *m_title;
     QComboBox *m_student = nullptr, *m_color = nullptr, *m_class, *m_rules;
+    QComboBox *m_black = nullptr, *m_white = nullptr;  // 比赛的双方
     class QDoubleSpinBox *m_komi;
+    class QCheckBox *m_useClock = nullptr;
+    class QSpinBox *m_mainMin = nullptr, *m_periods = nullptr, *m_periodSec = nullptr;
     QRadioButton *m_fromBoard;
     QPushButton *m_ok;
     qint64 m_created = 0;
@@ -66,8 +69,10 @@ signals:
 
 private:
     void sendChat();
+    void tickClock();
     RoomSession *m_s;
     QLabel *m_title, *m_status;
+    QLabel *m_clockLabel = nullptr;
     QListWidget *m_online;
     QTextBrowser *m_chat;
     QLineEdit *m_input;

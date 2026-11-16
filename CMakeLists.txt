@@ -41,6 +41,7 @@ set(SOURCES
     src/online/SgfPicker.h src/online/SgfPicker.cpp
     src/online/RoomSession.h src/online/RoomSession.cpp
     src/online/RoomUi.h src/online/RoomUi.cpp
+    src/online/AiGuard.h src/online/AiGuard.cpp
 )
 
 qt_add_executable(NanoGo ${SOURCES})

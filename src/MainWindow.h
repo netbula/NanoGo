@@ -115,11 +115,16 @@ private:
     bool roomBlocksAi() const;
     bool roomAllowsClick();
     bool askRoomResult(QString *result);
+    static QString resultText(const QString &re);
     void clearQueries();  // 换棋盘内容前清掉还指向旧节点的引擎查询
     class RoomSession *m_room = nullptr;
     class QDockWidget *m_roomDock = nullptr;
     class RoomPanel *m_roomPanel = nullptr;
     bool m_applyingRoom = false;
+    bool m_roomStoppedEngine = false;  // 学生进房时关掉了自己的 KataGo
+    void checkRoomAi();
+    class QTimer *m_aiGuard = nullptr;
+    QStringList m_aiFound;
     QAction *m_roomsAct = nullptr;
     QMenu *m_onlineMenu = nullptr;
     QAction *m_loginAct = nullptr, *m_tbLoginAct = nullptr, *m_pwAct = nullptr, *m_cloudAct = nullptr, *m_hwAct = nullptr, *m_adminAct = nullptr;

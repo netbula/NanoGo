@@ -3,6 +3,7 @@
 #include "BoardWidget.h"
 #include "I18n.h"
 #include "Sgf.h"
+#include "online/AiGuard.h"
 #include "online/ApiClient.h"
 #include "online/RoomSession.h"
 #include "online/RoomUi.h"
@@ -49,6 +50,18 @@ void MainWindow::pushRoomBoard()
 void MainWindow::enterRoom(qint64 id)
 {
     if (m_room) leaveRoom();
+    if (ApiClient::instance()->isStudent()) {
+        // 防作弊：学生进房前先关掉自己的 KataGo，再查电脑上有没有别的围棋 AI
+        m_engine->stop();
+        m_roomStoppedEngine = true;
+        const QStringList found = AiGuard::findGoAi();
+        if (!found.isEmpty()) {
+            QMessageBox::warning(this, T("对局室"), T("请先关闭下面这些程序，再进入对局室：\n%1").arg(found.join('\n')));
+            m_roomStoppedEngine = false;
+            restartEngine();
+            return;
+        }
+    }
     if (m_tsMode) exitTsumego();
     autosave();  // 进房前的棋局存好，离开时恢复
     m_aiColor = Stone::Empty;
@@ -74,6 +87,15 @@ void MainWindow::enterRoom(qint64 id)
         }
         setWindowTitle(T("NanoGo 围棋 - 对局室：%1").arg(m_room->title()));
         m_roomPanel->note(T("已进入对局室。"));
+        if (ApiClient::instance()->isStudent()) {
+            m_roomPanel->note(T("对局期间 NanoGo 会检查这台电脑上有没有运行其他围棋 AI，发现了会告诉老师。"));
+            m_aiFound.clear();
+            if (!m_aiGuard) {
+                m_aiGuard = new QTimer(this);
+                connect(m_aiGuard, &QTimer::timeout, this, &MainWindow::checkRoomAi);
+            }
+            m_aiGuard->start(8000);
+        }
     });
     connect(m_room, &RoomSession::boardChanged, this, &MainWindow::applyRoomBoard);
     connect(m_room, &RoomSession::chatArrived, this, [this](const QJsonArray &msgs) {
@@ -89,10 +111,26 @@ void MainWindow::enterRoom(qint64 id)
     connect(m_room, &RoomSession::ended, this, [this](bool byMe) {
         const bool game = m_room && !m_room->isLecture();
         QTimer::singleShot(0, this, &MainWindow::leaveRoom);
-        QMessageBox::information(this, T("对局室"), byMe ? T("对局室已结束，棋谱已存进你的云棋谱。")
-                                 : game ? T("老师结束了对局室，棋谱已存进你的云棋谱。") : T("老师结束了对局室。"));
+        const QString result = m_room ? m_room->result() : QString();
+        QString text = byMe ? T("对局室已结束，棋谱已存进你的云棋谱。")
+                     : game ? T("老师结束了对局室，棋谱已存进你的云棋谱。") : T("老师结束了对局室。");
+        if (!result.isEmpty()) text = T("对局结束：%1").arg(resultText(result)) + "\n" + text;
+        QMessageBox::information(this, T("对局室"), text);
     });
     m_room->start();
+}
+
+// 把 SGF 的 RE 写成中文：B+R → 黑中盘胜，W+T → 白超时胜，B+3.5 → 黑胜 3.5 目
+QString MainWindow::resultText(const QString &re)
+{
+    if (re == QLatin1String("0") || re.startsWith(QLatin1String("Draw"), Qt::CaseInsensitive)) return T("和棋");
+    const QString who = re.startsWith('B') ? T("黑") : re.startsWith('W') ? T("白") : QString();
+    if (who.isEmpty()) return re;
+    const QString how = re.mid(2);
+    if (how.startsWith('R')) return T("%1中盘胜").arg(who);
+    if (how.startsWith('T')) return T("%1超时胜").arg(who);
+    if (how.startsWith('F')) return T("%1判胜").arg(who);
+    return how.isEmpty() ? T("%1胜").arg(who) : T("%1胜 %2 目").arg(who, how);
 }
 
 // 结束对局室前确认；指导棋顺便选输赢，存进棋谱（双方名字、日期开房时已自动写好）
@@ -147,6 +185,7 @@ bool MainWindow::askRoomResult(QString *result)
 void MainWindow::leaveRoom()
 {
     if (!m_room) return;
+    if (m_aiGuard) m_aiGuard->stop();
     m_room->stop();
     m_room->deleteLater();
     m_room = nullptr;
@@ -161,7 +200,26 @@ void MainWindow::leaveRoom()
     clearQueries();
     setWindowTitle(T("NanoGo 围棋"));
     restoreAutosave();
+    if (m_roomStoppedEngine) {  // 学生离开对局室：AI 恢复
+        m_roomStoppedEngine = false;
+        restartEngine();
+    }
     positionChanged();
+}
+
+// 防作弊：定时查一次；有变化（新发现或都关掉了）就报告给老师
+void MainWindow::checkRoomAi()
+{
+    if (!m_room) return;
+    const QStringList found = AiGuard::findGoAi();
+    if (found == m_aiFound) return;
+    m_aiFound = found;
+    m_room->reportAi(found);
+    if (!found.isEmpty()) {
+        const QString msg = T("检测到正在运行：%1。对局期间请关闭，老师已经收到提醒。").arg(found.join(QStringLiteral("、")));
+        if (m_roomPanel) m_roomPanel->note(msg);
+        QMessageBox::warning(this, T("对局室"), msg);
+    }
 }
 
 void MainWindow::applyRoomBoard(const QString &sgf, const QString &cursor)

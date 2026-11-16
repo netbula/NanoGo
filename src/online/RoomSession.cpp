@@ -1,6 +1,7 @@
 #include "RoomSession.h"
 #include "ApiClient.h"
 #include "../I18n.h"
+#include <QDateTime>
 #include <QPointer>
 #include <QTimer>
 
@@ -17,6 +18,7 @@ QString RoomSession::title() const
 {
     const QString t = m_room.value("title").toString();
     if (!t.isEmpty()) return t;
+    if (isMatch()) return T("比赛：%1 对 %2").arg(m_room.value("black_name").toString(), m_room.value("white_name").toString());
     return isLecture() ? T("%1 大课").arg(m_room.value("class_name").toString())
                        : T("指导棋：%1 对 %2").arg(m_room.value("black_name").toString(), m_room.value("white_name").toString());
 }
@@ -114,6 +116,9 @@ void RoomSession::handleState(const QJsonObject &st, bool force)
     m_toMove = st.value("to_move").toString(m_toMove);
     m_controlId = num(st.value("control_id"));
     m_online = st.value("online").toArray();
+    m_clock = st.value("clock").toObject();
+    m_clockAt = QDateTime::currentMSecsSinceEpoch();
+    m_result = st.value("result").toString();
     const QJsonArray chat = st.value("chat").toArray();
     if (!chat.isEmpty()) emit chatArrived(chat);
     emit statusChanged();
@@ -164,6 +169,11 @@ void RoomSession::sendChat(const QString &text)
     api()->post(QStringLiteral("/rooms/%1/chat").arg(m_id), QJsonObject{{"text", text}}, [self](const ApiResult &r) {
         if (self && !r.ok) emit self->problem(r.message());
     });
+}
+
+void RoomSession::reportAi(const QStringList &programs)
+{
+    api()->post(QStringLiteral("/rooms/%1/alert").arg(m_id), QJsonObject{{"programs", QJsonArray::fromStringList(programs)}}, nullptr);
 }
 
 void RoomSession::setControl(qint64 userId)
