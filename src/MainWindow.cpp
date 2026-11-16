@@ -785,6 +785,7 @@ void MainWindow::newGame()
     m_engine->terminateAll();
     // 换棋谱前清掉还指向旧棋谱节点的查询
     m_reviewQueryId.clear();
+    m_fillQueryId.clear();
     m_reviewLine.clear();
     m_side.clear();
     m_ownQueryId.clear();
@@ -815,6 +816,7 @@ void MainWindow::openSgf()
     m_engine->terminateAll();
     // 换棋谱前清掉还指向旧棋谱节点的查询
     m_reviewQueryId.clear();
+    m_fillQueryId.clear();
     m_reviewLine.clear();
     m_side.clear();
     m_ownQueryId.clear();
@@ -937,6 +939,7 @@ void MainWindow::onEngineState(KataGoEngine::State s, const QString &msg)
         }
         if (m_tsMode && m_tsState == TsState::Thinking) tsSendBest();
         maybeAiMove();
+        if (m_aiColor != Stone::Empty) backfillGraph();  // 重启后把之前下的手补到胜率曲线上
     }
     // 开发用：NANOGO_AUTOREVIEW=1 时引擎一就绪就整盘分析（自动测试用）
     if (s == KataGoEngine::State::Ready && qEnvironmentVariableIsSet("NANOGO_AUTOREVIEW") && m_reviewQueryId.isEmpty() && m_reviewDone == 0)
@@ -1047,6 +1050,7 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
                 a.visits = root.value("visits").toInt();
                 refreshReview();
             }
+            backfillGraph();
         }
         if (!oneShot && (m_aiColor == Stone::Empty || m_tree.toPlay() != m_aiColor)) return;
         const QJsonArray infos = resp.value("moveInfos").toArray();
@@ -1122,6 +1126,23 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
         return;
     }
     const QString rid = resp.value("id").toString();
+    if (!m_fillQueryId.isEmpty() && rid == m_fillQueryId) {
+        if (resp.value("isDuringSearch").toBool()) return;
+        const int turn = resp.value("turnNumber").toInt(-1);
+        if (turn >= 0 && turn < m_fillLine.size()) {
+            const QJsonObject root = resp.value("rootInfo").toObject();
+            Analysis &a = m_fillLine[turn]->analysis;
+            if (!a.valid && !root.isEmpty()) {
+                a.valid = true;
+                a.winrateBlack = root.value("winrate").toDouble();
+                a.scoreLeadBlack = root.value("scoreLead").toDouble();
+                a.visits = root.value("visits").toInt();
+            }
+        }
+        if (--m_fillLeft <= 0) { m_fillQueryId.clear(); m_fillLine.clear(); }
+        refreshReview();
+        return;
+    }
     if (!m_reviewQueryId.isEmpty() && rid == m_reviewQueryId) {
         if (resp.value("isDuringSearch").toBool()) return;
         const int turn = resp.value("turnNumber").toInt(-1);
@@ -1138,6 +1159,7 @@ void MainWindow::onAnalysis(const QJsonObject &resp)
         }
         if (++m_reviewDone >= m_reviewLine.size()) {
             m_reviewQueryId.clear();
+    m_fillQueryId.clear();
             m_reviewBtn->setText(T("分析整盘棋"));
             statusBar()->showMessage(T("整盘分析完成"), 5000);
             autosave();
@@ -1297,12 +1319,39 @@ void MainWindow::newAiGame()
     positionChanged();
 }
 
+// 胜率曲线上缺的手（重启前下的、算到一半被取消的）用很少的计算量在后台补上
+void MainWindow::backfillGraph()
+{
+    if (m_tsMode || !m_fillQueryId.isEmpty() || !m_reviewQueryId.isEmpty()) return;
+    if (m_engine->state() != KataGoEngine::State::Ready) return;
+    const QList<GameNode *> line = m_tree.mainLineFromCurrentPath();
+    QList<GameNode *> moveNodes{line.first()};
+    for (int i = 1; i < line.size(); ++i) {
+        if (!line[i]->addBlack.isEmpty() || !line[i]->addWhite.isEmpty()) return;
+        if (line[i]->move.isValid()) moveNodes << line[i];
+    }
+    QJsonArray turns;
+    for (int t = 0; t < moveNodes.size(); ++t)
+        if (!moveNodes[t]->analysis.valid && moveNodes[t] != m_tree.current()) turns.append(t);
+    if (turns.isEmpty()) return;
+    QJsonObject q = buildQueryFor(moveNodes);
+    q.remove("reportDuringSearchEvery");
+    q["maxVisits"] = 100;
+    q["includeOwnership"] = false;
+    q["analyzeTurns"] = turns;
+    m_fillQueryId = m_engine->analyze(q);
+    if (m_fillQueryId.isEmpty()) return;
+    m_fillLine = moveNodes;
+    m_fillLeft = turns.size();
+}
+
 void MainWindow::startReview()
 {
     if (!m_reviewQueryId.isEmpty()) {
         // 再按一次：停止
         m_engine->terminate(m_reviewQueryId);
         m_reviewQueryId.clear();
+    m_fillQueryId.clear();
         m_reviewBtn->setText(T("分析整盘棋"));
         statusBar()->showMessage(T("已停止整盘分析"), 4000);
         refreshInfo();

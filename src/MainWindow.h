@@ -38,6 +38,7 @@ private:
     void maybeAiMove();
     void sendAiQuery();
     void sendSideQuery(int purpose, int visits);
+    void backfillGraph();
     void countScore();
     void showCount(GameNode *node, const QJsonObject &resp);
     void checkModel(bool manual);
@@ -107,6 +108,9 @@ private:
     class QPushButton *m_reviewBtn = nullptr;
     QComboBox *m_reviewVisits = nullptr;
     QString m_reviewQueryId;
+    QString m_fillQueryId;            // 后台补算胜率曲线缺的那几手
+    QList<GameNode *> m_fillLine;
+    int m_fillLeft = 0;
     QList<GameNode *> m_reviewLine;   // 第 i 个是第 i 手之后的局面（0 = 开局）
     int m_reviewDone = 0;
     QList<MoveEval> m_evals;
