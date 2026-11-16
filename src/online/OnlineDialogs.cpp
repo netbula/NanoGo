@@ -1,4 +1,7 @@
 #include "OnlineDialogs.h"
+#include "../AppSettings.h"
+#include <QDir>
+#include <QSettings>
 #include "ApiClient.h"
 #include "../I18n.h"
 #include <QCheckBox>
@@ -352,8 +355,12 @@ void CloudGamesDialog::upload()
 
 void CloudGamesDialog::uploadFiles()
 {
-    const QStringList paths = QFileDialog::getOpenFileNames(this, T("从文件上传…"), QString(), T("SGF 棋谱 (*.sgf);;所有文件 (*)"));
+    // 记住上次选文件的文件夹，下次直接打开那里
+    QSettings st(QDir(AppSettings::dataDir()).filePath("picker.ini"), QSettings::IniFormat);
+    const QStringList paths = QFileDialog::getOpenFileNames(this, T("从文件上传…"), st.value("uploadDir").toString(),
+                                                            T("SGF 棋谱 (*.sgf);;所有文件 (*)"));
     if (paths.isEmpty()) return;
+    st.setValue("uploadDir", QFileInfo(paths.first()).absolutePath());
     m_uploadFilesBtn->setEnabled(false);
     // 一个一个传，全部传完再刷新；出错的记下来最后一起说
     auto failed = std::make_shared<QStringList>();
