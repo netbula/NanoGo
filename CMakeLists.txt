@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
+# 也可以把 Qt 装在项目里的 qt 文件夹（例如 qt/6.8.3/msvc2022_64），不用改预设
+file(GLOB _local_qt "${CMAKE_SOURCE_DIR}/qt/*/msvc*_64")
+list(APPEND CMAKE_PREFIX_PATH ${_local_qt})
 find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Network)
 
 if(MSVC)
