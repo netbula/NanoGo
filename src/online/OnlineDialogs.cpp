@@ -85,7 +85,7 @@ QDialogButtonBox *okCancel(QDialog *dlg, const QString &okText = QString())
 
 // ---- 公用 ----
 
-const char *const Online::kServerDownloadUrl = "https://github.com/netbula/NanoGo/releases?q=server-&expanded=true";
+const char *const Online::kServerDownloadUrl = "https://github.com/netbula/NanoGo-server";
 
 void Online::showServerInfo(QWidget *parent)
 {
