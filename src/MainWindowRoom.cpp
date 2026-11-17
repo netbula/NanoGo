@@ -197,7 +197,7 @@ bool MainWindow::askRoomResult(QString *result)
     }
     if (!m_room->isMatch() && !present.isEmpty()) {
         lesson = new QCheckBox(T("给在场的 %1 个学生每人记 1 节课").arg(present.size()), &dlg);
-        lesson->setChecked(QSettings().value("room/recordLesson", false).toBool());
+        lesson->setChecked(QSettings().value("room/recordLesson", true).toBool());
         form->addRow(lesson);
     }
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);

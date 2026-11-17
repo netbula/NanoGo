@@ -17,6 +17,7 @@
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
+#include <QScreen>
 #include <QSet>
 #include <QSpinBox>
 #include <QSplitter>
@@ -141,7 +142,10 @@ TuitionDialog::TuitionDialog(QWidget *parent) : QDialog(parent)
     m_info->setText(student ? T("课时由老师和管理员记录。有疑问请联系老师。")
                     : admin ? T("剩余课时 %1 节及以下的标红，提醒续费。记错了可以作废，账目会留在操作日志里。可以按住 Ctrl 选几个学生一起记上课。").arg(kLowLessons)
                             : T("剩余课时 %1 节及以下的标红。可以按住 Ctrl 选几个学生一起记上课；只能作废自己记的上课。").arg(kLowLessons));
-    resize(admin ? 900 : 760, 560);
+    // 不超过屏幕可用区域（任务栏不挡住底下的按钮）
+    QSize sz(admin ? 900 : 760, 560);
+    if (QScreen *scr = parent ? parent->screen() : screen()) sz = sz.boundedTo(scr->availableGeometry().size() * 0.85);
+    resize(sz);
     reloadSummary();
 }
 
@@ -199,13 +203,15 @@ void TuitionDialog::reloadEntries()
 {
     m_entries->setRowCount(0);
     m_entryList = {};
+    const int serial = ++m_entrySerial;
     if (!m_current) return;
     QPointer<TuitionDialog> self(this);
     const qint64 sid = m_current;
     const QString path = api()->isStudent() ? QStringLiteral("/tuition/entries") : QStringLiteral("/tuition/entries?student_id=%1").arg(sid);
-    api()->get(path, [self, sid](const ApiResult &r) {
-        if (!self || self->m_current != sid) return;
+    api()->get(path, [self, sid, serial](const ApiResult &r) {
+        if (!self || self->m_current != sid || self->m_entrySerial != serial) return;
         if (!r.ok) { Online::showError(self, self->windowTitle(), r); return; }
+        self->m_entries->setRowCount(0);
         self->m_entryList = r.data.toArray();
         const bool money = self->m_entries->columnCount() == 7;
         for (const QJsonValue &v : self->m_entryList) {

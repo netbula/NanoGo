@@ -29,6 +29,7 @@ private:
     QPushButton *m_void = nullptr;
     QJsonArray m_sumList, m_entryList;
     qint64 m_current = 0;
+    int m_entrySerial = 0;  // 只用最后一次请求的结果，防止明细重复
 };
 
 namespace Tuition {
