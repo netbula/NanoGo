@@ -3,6 +3,7 @@
 #include "I18n.h"
 #include "Sgf.h"
 #include "online/ApiClient.h"
+#include "online/TuitionUi.h"
 #include <QComboBox>
 #include <QDir>
 #include <QLabel>
@@ -32,6 +33,10 @@ void MainWindow::buildOnlineMenu()
         dlg.exec();
     });
     m_roomsAct = m_onlineMenu->addAction(T("对局室（指导棋、大课）…"), this, &MainWindow::openRooms);
+    m_tuitionAct = m_onlineMenu->addAction(T("学费和课时…"), this, [this] {
+        TuitionDialog dlg(this);
+        dlg.exec();
+    });
     m_adminAct = m_onlineMenu->addAction(T("管理（账号、班级）…"), this, [this] {
         AdminDialog dlg(this);
         dlg.exec();
@@ -83,7 +88,8 @@ void MainWindow::refreshOnline()
     ApiClient *api = ApiClient::instance();
     const bool in = api->loggedIn();
     m_loginAct->setText(in ? T("退出登录") : T("登录教学服务器…"));
-    for (QAction *a : {m_pwAct, m_cloudAct, m_hwAct, m_roomsAct}) a->setVisible(in);
+    for (QAction *a : {m_pwAct, m_cloudAct, m_hwAct, m_roomsAct, m_tuitionAct}) a->setVisible(in);
+    m_tuitionAct->setText(api->isStudent() ? T("我的课时…") : T("学费和课时…"));
     if (!in && m_room) leaveRoom();  // 退出登录或会话失效：离开对局室
     m_adminAct->setVisible(in && api->isAdmin());
     m_hwAct->setText(api->isTeacher() ? T("布置和批改作业…") : T("我的作业…"));

@@ -42,6 +42,7 @@ set(SOURCES
     src/online/RoomSession.h src/online/RoomSession.cpp
     src/online/RoomUi.h src/online/RoomUi.cpp
     src/online/AiGuard.h src/online/AiGuard.cpp
+    src/online/TuitionUi.h src/online/TuitionUi.cpp
 )
 
 qt_add_executable(NanoGo ${SOURCES})

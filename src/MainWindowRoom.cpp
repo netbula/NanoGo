@@ -7,6 +7,7 @@
 #include "online/ApiClient.h"
 #include "online/RoomSession.h"
 #include "online/RoomUi.h"
+#include "online/TuitionUi.h"
 #include <QAction>
 #include <QPushButton>
 #include <QLabel>
@@ -18,6 +19,8 @@
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QTimer>
+#include <QSettings>
+#include <QCheckBox>
 #include <QSet>
 #include <QJsonArray>
 #include <QApplication>
@@ -183,6 +186,20 @@ bool MainWindow::askRoomResult(QString *result)
             margin->setEnabled(kind->currentData().toString().endsWith('+'));
         });
     }
+    // 记课时：给现在在房间里的学生每人扣 1 节（比赛不算上课）；上次的选择记住
+    QCheckBox *lesson = nullptr;
+    QList<qint64> present;
+    const QJsonObject room = m_room->room();
+    const qint64 owner = qint64(room["owner_id"].toDouble());
+    for (const QJsonValue &v : m_room->online()) {
+        const qint64 id = qint64(v.toObject()["id"].toDouble());
+        if (id != owner && id != ApiClient::instance()->myId()) present << id;
+    }
+    if (!m_room->isMatch() && !present.isEmpty()) {
+        lesson = new QCheckBox(T("给在场的 %1 个学生每人记 1 节课").arg(present.size()), &dlg);
+        lesson->setChecked(QSettings().value("room/recordLesson", true).toBool());
+        form->addRow(lesson);
+    }
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     bb->button(QDialogButtonBox::Ok)->setText(T("结束并保存"));
     bb->button(QDialogButtonBox::Cancel)->setText(T("取消"));
@@ -190,6 +207,10 @@ bool MainWindow::askRoomResult(QString *result)
     connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     form->addRow(bb);
     if (dlg.exec() != QDialog::Accepted) return false;
+    if (lesson) {
+        QSettings().setValue("room/recordLesson", lesson->isChecked());
+        if (lesson->isChecked()) Tuition::recordLessons(this, present, m_room->id(), m_room->title());
+    }
     result->clear();
     if (kind) {
         *result = kind->currentData().toString();

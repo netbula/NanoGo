@@ -135,7 +135,7 @@ private:
     QStringList m_aiFound;
     QAction *m_roomsAct = nullptr;
     QMenu *m_onlineMenu = nullptr;
-    QAction *m_loginAct = nullptr, *m_tbLoginAct = nullptr, *m_pwAct = nullptr, *m_cloudAct = nullptr, *m_hwAct = nullptr, *m_adminAct = nullptr;
+    QAction *m_loginAct = nullptr, *m_tbLoginAct = nullptr, *m_pwAct = nullptr, *m_cloudAct = nullptr, *m_hwAct = nullptr, *m_adminAct = nullptr, *m_tuitionAct = nullptr;
     QLabel *m_onlineStatus = nullptr;
     enum class TsState { Thinking, UserTurn, Replying, Solved, Failed };
     bool m_tsMode = false;
