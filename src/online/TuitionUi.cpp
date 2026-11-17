@@ -23,6 +23,7 @@
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTextStream>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
@@ -146,6 +147,16 @@ TuitionDialog::TuitionDialog(QWidget *parent) : QDialog(parent)
     QSize sz(admin ? 900 : 760, 560);
     if (QScreen *scr = parent ? parent->screen() : screen()) sz = sz.boundedTo(scr->availableGeometry().size() * 0.85);
     resize(sz);
+    // 打开后整个窗口挪进屏幕可用区域（含标题栏）
+    QTimer::singleShot(0, this, [this] {
+        QScreen *scr = screen();
+        if (!scr) return;
+        const QRect avail = scr->availableGeometry();
+        QRect f = frameGeometry();
+        f.moveLeft(qBound(avail.left(), f.left(), qMax(avail.left(), avail.right() - f.width())));
+        f.moveTop(qBound(avail.top(), f.top(), qMax(avail.top(), avail.bottom() - f.height())));
+        move(f.topLeft());
+    });
     reloadSummary();
 }
 
